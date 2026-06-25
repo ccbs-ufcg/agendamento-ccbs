@@ -1,5 +1,7 @@
 {
-  "name": "react-example",
+  "name": "agendamento-ccbs",
+  "version": "0.1.0",
+  "homepage": "https://renato-de-freitas.github.io/agendamento-ccbs/",
   "private": true,
   "version": "0.0.0",
   "type": "module",
