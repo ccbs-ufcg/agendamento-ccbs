@@ -32,14 +32,20 @@ import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged }
 import { getFirestore, collection, onSnapshot, doc, setDoc, deleteDoc } from 'firebase/firestore';
 
 // --- CONFIGURAÇÃO DO FIREBASE ---
-const firebaseConfig = typeof (window as any).__firebase_config !== 'undefined' && (window as any).__firebase_config
-  ? JSON.parse((window as any).__firebase_config as string) 
-  : null;
+const firebaseConfig = {
+  projectId: "gen-lang-client-0405590990",
+  appId: "1:507764642698:web:856fe24c5779424c04ee73",
+  apiKey: "AIzaSyDb3NCltHYiQjKPpfA615mnvcQ418ir6mA",
+  authDomain: "gen-lang-client-0405590990.firebaseapp.com",
+  firestoreDatabaseId: "ai-studio-14d70056-6152-4443-af0a-c8856441a23e",
+  storageBucket: "gen-lang-client-0405590990.firebasestorage.app",
+  messagingSenderId: "507764642698",
+};
 
-const app = firebaseConfig ? initializeApp(firebaseConfig) : null;
-const auth = app ? getAuth(app) : null;
-const db = app ? getFirestore(app, firebaseConfig.firestoreDatabaseId) : null;
-const appId = typeof (window as any).__app_id !== 'undefined' ? (window as any).__app_id : 'ccbs-agendamento-final';
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+const appId = 'ccbs-agendamento-final';
 
 // --- CONSTANTES ---
 const AUDITORIOS = ['AUDITÓRIO', 'SALA DE REUNIÃO'];
