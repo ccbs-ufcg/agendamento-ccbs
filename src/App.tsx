@@ -728,7 +728,7 @@ export default function App() {
             </div>
 
             <div className="p-10 space-y-8">
-              {/* Cabeçalho do Documento Ajustado (Sem linha, sem sublinhado, título a 14px e logo do CCBS aumentado) */}
+              {/* Cabeçalho do Documento Ajustado (Logótipo CCBS à direita com exatamente 2cm de largura) */}
               <div className="flex justify-between items-center pb-4">
                  <img src={UFCG_LOGO} alt="UFCG" className="h-14 w-14 object-contain" />
                  <div className="text-center flex-1 px-4">
@@ -742,7 +742,7 @@ export default function App() {
                      TERMO DE RESPONSABILIDADE PARA UTILIZAÇÃO DE ESPAÇO
                    </p>
                  </div>
-                 <img src={CCBS_LOGO} alt="CCBS" className="h-20 w-20 object-contain" />
+                 <img src={CCBS_LOGO} alt="CCBS" className="w-[2cm] h-auto object-contain" />
               </div>
 
               {/* Corpo do Documento */}
@@ -817,7 +817,7 @@ export default function App() {
           </div>
         </div>
       )}
-
+  
       {/* MODAL DE DESBLOQUEIO ADMIN */}
       {showAdminUnlock && (
         <div className="fixed inset-0 bg-slate-900/95 backdrop-blur-md z-[120] flex items-center justify-center p-4 print:hidden">
