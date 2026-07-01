@@ -75,9 +75,9 @@ export default function App() {
   const [adminUnlockPassword, setAdminUnlockPassword] = useState('');
   const [loading, setLoading] = useState(true);
   const [loadingAI, setLoadingAI] = useState(false);
+  const [generatingPDF, setGeneratingPDF] = useState(false);
   const [aiSuggestions, setAiSuggestions] = useState<any>(null);
   const [isAdminMode, setIsAdminMode] = useState(false);
-  const [generatingPDF, setGeneratingPDF] = useState(false);
   
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDayReservas, setSelectedDayReservas] = useState<{date: string, items: any[]} | null>(null);
@@ -184,7 +184,6 @@ export default function App() {
       return;
     }
 
-    // Verificação de conflito
     const conflito = reservas.find(r => 
       r.auditorio === formData.auditorio && 
       r.data === formData.data && 
@@ -209,7 +208,6 @@ export default function App() {
         showToast('Banco de dados não configurado.', 'error');
         return;
       }
-      // Gravar na nuvem (Firestore)
       const docRef = doc(db, 'artifacts', appId as string, 'public', 'data', 'reservas_ccbs', id);
       await setDoc(docRef, novaReserva);
       
@@ -265,7 +263,7 @@ export default function App() {
     setGeneratingPDF(true);
     try {
       // @ts-ignore
-      const canvas = await window.html2canvas(elemento, { scale: 2, backgroundColor: '#ffffff' });
+      const canvas = await window.html2canvas(elemento, { scale: 2, backgroundColor: '#ffffff', useCORS: true });
       // @ts-ignore
       const { jsPDF } = window.jspdf;
       const pdf = new jsPDF('p', 'mm', 'a4');
@@ -495,7 +493,6 @@ export default function App() {
                    <Info className="w-6 h-6 text-blue-400" /> {selectedDayReservas.date.split('-').reverse().join('/')}
                  </h4>
                  
-                 {/* Botão de desbloqueio para Admin */}
                  {!isAdminMode ? (
                    <button onClick={() => setShowAdminUnlock(true)} className="flex items-center gap-2 text-[10px] font-bold text-slate-400 hover:text-white transition-all bg-white/5 px-3 py-1.5 rounded-full">
                      <Lock className="w-3 h-3" /> Ver Contatos
@@ -510,7 +507,6 @@ export default function App() {
                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                  {selectedDayReservas.items.map(res => (
                    <div key={res.id} className="bg-white/5 border border-white/10 p-5 rounded-2xl relative group hover:bg-white/10 transition-all">
-                     
                      <div className="flex justify-between items-start mb-3">
                        <div className="flex items-center gap-2">
                          <span className={`text-[8px] font-black px-2 py-0.5 rounded uppercase ${res.auditorio === 'AUDITÓRIO' ? 'bg-blue-600' : 'bg-cyan-500'}`}>{res.auditorio}</span>
@@ -520,13 +516,10 @@ export default function App() {
                          <Trash2 className="w-4 h-4" />
                        </button>
                      </div>
-
                      <h5 className="text-lg font-black uppercase tracking-tight text-white mb-1">{res.nomeEvento}</h5>
                      <div className="flex items-center gap-2 text-xs text-slate-300 mb-3">
                        <User className="w-3 h-3" /> {res.requisitante} <span className="opacity-50">({res.setor})</span>
                      </div>
-
-                     {/* Área de Contatos */}
                      <div className="pt-3 border-t border-white/10">
                        {isAdminMode ? (
                          <div className="space-y-1">
@@ -540,7 +533,6 @@ export default function App() {
                          </div>
                        )}
                      </div>
-
                    </div>
                  ))}
                </div>
@@ -563,21 +555,21 @@ export default function App() {
 
       {/* TERMO DE RESPONSABILIDADE (Gerado após reserva) */}
       {showReceipt && (
-        <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[100] flex items-center justify-center p-4 print:relative print:bg-white print:p-0 print:inset-0 print:block overflow-y-auto">
-          <div className="bg-white rounded-none md:rounded-[2rem] w-full max-w-3xl shadow-2xl overflow-hidden my-auto print:shadow-none print:w-full print:max-w-none">
+        <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[100] flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-none md:rounded-[2rem] w-full max-w-3xl shadow-2xl overflow-hidden my-auto">
             
-            {/* Aviso Amarelo (Não sai na impressão) */}
-            <div className="bg-yellow-100 border-b-2 border-yellow-300 p-4 text-center print:hidden">
+            {/* Aviso Amarelo */}
+            <div className="bg-yellow-100 border-b-2 border-yellow-300 p-4 text-center">
               <p className="text-yellow-800 text-sm font-bold flex items-center justify-center gap-2">
                 <AlertCircle className="w-5 h-5" /> 
                 Atenção: Baixe este termo em PDF, assine digitalmente via GOV.BR (http://assinador.iti.br/) e envie para: reservaccbs@gmail.com
               </p>
             </div>
 
+            {/* Conteúdo que será capturado para o PDF */}
             <div className="p-10 space-y-8" id="termo-pdf-content">
-              {/* Cabeçalho do Documento Ajustado (Logótipo CCBS à direita com exatamente 2cm de largura) */}
               <div className="flex justify-between items-center pb-4">
-                 <img src={UFCG_LOGO} alt="UFCG" className="h-14 w-14 object-contain" />
+                 <img src={UFCG_LOGO} alt="UFCG" className="h-14 w-14 object-contain" crossOrigin="anonymous" />
                  <div className="text-center flex-1 px-4">
                    <h2 className="text-[14px] font-bold uppercase tracking-tight text-black leading-tight">
                      UNIVERSIDADE FEDERAL DE CAMPINA GRANDE - UFCG
@@ -589,10 +581,9 @@ export default function App() {
                      TERMO DE RESPONSABILIDADE PARA UTILIZAÇÃO DE ESPAÇO
                    </p>
                  </div>
-                 <img src={CCBS_LOGO} alt="CCBS" className="w-[2cm] h-auto object-contain" />
+                 <img src={CCBS_LOGO} alt="CCBS" className="w-[2cm] h-auto object-contain" crossOrigin="anonymous" />
               </div>
 
-              {/* Corpo do Documento */}
               <div className="text-xs space-y-4 text-black leading-relaxed">
                 <p>
                   Eu, <strong>{showReceipt.requisitante}</strong>, CPF nº <strong>{showReceipt.cpf}</strong>, 
@@ -608,15 +599,10 @@ export default function App() {
 
                 <div className="space-y-3">
                   <p><strong>CLÁUSULA PRIMEIRA - DA CONSERVAÇÃO DO PATRIMÔNIO:</strong> Comprometo-me a zelar pela conservação das instalações, mobiliários, equipamentos e demais bens patrimoniais existentes no {showReceipt.auditorio} do CCBS, responsabilizando-me por danos decorrentes de uso inadequado, negligência, imprudência ou imperícia dos participantes do evento sob minha responsabilidade.</p>
-                  
                   <p><strong>CLÁUSULA SEGUNDA - DA UTILIZAÇÃO DO ESPAÇO:</strong> Comprometo-me a utilizar o espaço exclusivamente para a finalidade previamente informada e autorizada pela Direção do CCBS, observando as normas institucionais vigentes e as orientações da Administração do Centro.</p>
-                  
                   <p><strong>CLÁUSULA TERCEIRA - DA ORGANIZAÇÃO E LIMPEZA:</strong> Ao término do evento, comprometo-me a entregar o espaço em condições adequadas de organização, conservação e limpeza, preservando a disposição original do mobiliário e dos equipamentos disponibilizados.</p>
-                  
                   <p><strong>CLÁUSULA QUARTA - DOS EQUIPAMENTOS E RECURSOS:</strong> Declaro ter recebido, em perfeito estado de funcionamento, os equipamentos eventualmente disponibilizados para o evento, responsabilizando-me por sua correta utilização e devolução nas mesmas condições iniciais. Ao término do evento comprometo-me a desligar as luzes e aparelhos de ar-condicionado e de informática.</p>
-
                   <p><strong>CLÁUSULA QUINTA - DA SEGURANÇA:</strong> Comprometo-me a respeitar a capacidade máxima do local, bem como a não realizar atividades que possam colocar em risco a integridade física dos participantes ou do patrimônio público.</p>
-
                   <div>
                     <strong>CLÁUSULA SEXTA - DAS VEDAÇÕES:</strong> É vedado:
                     <ul className="list-none pl-4 mt-1 space-y-1">
@@ -626,7 +612,6 @@ export default function App() {
                       <li>IV - Alterar instalações elétricas, de rede, sonorização ou quaisquer outros sistemas sem autorização prévia da Administração do CCBS.</li>
                     </ul>
                   </div>
-
                   <p><strong>CLÁUSULA SÉTIMA - DAS RESPONSABILIDADES:</strong> O descumprimento das disposições deste Termo poderá implicar a suspensão de futuras autorizações de uso, sem prejuízo da apuração de responsabilidades administrativas, civis e legais cabíveis, bem como da obrigação de ressarcimento ao erário em caso de dano ao patrimônio público.</p>
                 </div>
 
@@ -634,7 +619,6 @@ export default function App() {
 
                 <div className="text-center pt-6 space-y-8">
                   <p>Campina Grande/PB, {formatarDataExtenso(showReceipt.dataCriacao)}</p>
-                  
                   <div className="w-1/2 mx-auto border-t border-black pt-2 mt-12">
                     <p className="font-bold uppercase text-xs">RESPONSÁVEL PELO EVENTO: {showReceipt.requisitante}</p>
                     <p className="text-xs">Assinatura Digital GOV.BR</p>
@@ -653,9 +637,14 @@ export default function App() {
               </div>
             </div>
 
-            <div className="p-8 bg-slate-50 flex gap-4 print:hidden border-t border-slate-200">
-              <button onClick={handleDownloadPDF} disabled={generatingPDF} className="flex-1 py-4 bg-blue-700 text-white font-black rounded-xl flex items-center justify-center gap-2 hover:bg-blue-800 transition-all uppercase tracking-widest text-xs disabled:opacity-50">
-                {generatingPDF ? <Loader2 className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />} {generatingPDF ? 'Gerando PDF...' : 'Baixar Termo PDF'}
+            <div className="p-8 bg-slate-50 flex gap-4 border-t border-slate-200">
+              <button
+                onClick={handleDownloadPDF}
+                disabled={generatingPDF}
+                className="flex-1 py-4 bg-blue-700 text-white font-black rounded-xl flex items-center justify-center gap-2 hover:bg-blue-800 transition-all uppercase tracking-widest text-xs disabled:opacity-50"
+              >
+                {generatingPDF ? <Loader2 className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
+                {generatingPDF ? 'Gerando PDF...' : 'Baixar Termo PDF'}
               </button>
               <button onClick={() => setShowReceipt(null)} className="px-8 py-4 bg-white border-2 border-slate-200 text-slate-600 font-black rounded-xl hover:bg-slate-100 transition-all uppercase tracking-widest text-xs">
                 Fechar
@@ -674,9 +663,7 @@ export default function App() {
             </div>
             <h3 className="text-lg font-black uppercase mb-2">Acesso Restrito</h3>
             <p className="text-slate-500 text-xs mb-6">Insira a Senha Mestra para visualizar os contatos dos responsáveis.</p>
-            
             <input type="password" value={adminUnlockPassword} onChange={(e) => setAdminUnlockPassword(e.target.value)} className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-xl text-center text-lg font-black tracking-widest mb-4 focus:border-blue-500 outline-none" placeholder="Senha Mestra" autoFocus />
-            
             <div className="flex flex-col gap-2">
               <button onClick={handleAdminUnlock} className="w-full py-3 bg-slate-800 text-white font-black rounded-xl uppercase tracking-widest text-[10px] hover:bg-black transition-all">Desbloquear Dados</button>
               <button onClick={() => setShowAdminUnlock(false)} className="py-2 text-slate-400 font-bold uppercase text-[9px] hover:text-slate-600">Cancelar</button>
@@ -694,9 +681,7 @@ export default function App() {
             </div>
             <h3 className="text-xl font-black uppercase mb-2">Segurança</h3>
             <p className="text-slate-500 text-xs mb-6">Insira a senha do utilizador ou a senha mestra para cancelar o evento <span className="font-bold text-slate-800 uppercase">"{showCancelModal.nomeEvento}"</span>.</p>
-            
             <input type="password" value={cancelPassword} onChange={(e) => setCancelPassword(e.target.value)} className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl text-center text-xl font-black tracking-widest mb-6 focus:border-red-500 outline-none" placeholder="Senha" autoFocus />
-            
             <div className="flex flex-col gap-3">
               <button onClick={confirmCancelation} className="w-full py-4 bg-red-600 text-white font-black rounded-xl uppercase tracking-widest text-[10px] hover:bg-red-700 shadow-lg shadow-red-500/30 transition-all">Remover Definitivamente</button>
               <button onClick={() => { setShowCancelModal(null); setCancelPassword(''); }} className="py-2 text-slate-400 font-bold uppercase text-[9px] hover:text-slate-600">Manter Reserva</button>
