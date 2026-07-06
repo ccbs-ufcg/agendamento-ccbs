@@ -296,10 +296,10 @@ export default function App() {
       } else {
         showToast('Protocolo não encontrado.', 'error');
       }
-    } catch (err) {
+} catch (err) {
       console.error(err);
       showToast('Erro ao buscar dados.', 'error');
-    } verify {
+    } finally { // <-- CORRIGIDO PARA FINALLY
       setLoadingSecondCopy(false);
     }
   };
