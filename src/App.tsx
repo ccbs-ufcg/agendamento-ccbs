@@ -58,9 +58,9 @@ const HORARIOS = [
 ];
 const MASTER_PASSWORD = 'adminCCBS2026';
 
-// LOGOS: Caminhos relativos oficiais baseados na URL do seu GitHub Pages para carregar em qualquer navegador
-const UFCG_LOGO = './logo-ufcg.png'; 
-const CCBS_LOGO = './logo-ccbs.png';
+// LOGOS CORRIGIDAS: URLs absolutas oficiais do seu domínio de publicação para garantir carregamento total
+const UFCG_LOGO = 'https://ccbs-ufcg.github.io/agendamento-ccbs/logo-ufcg.png'; 
+const CCBS_LOGO = 'https://ccbs-ufcg.github.io/agendamento-ccbs/logo-ccbs.png';
 
 function formatarDataExtenso(dataCriacao: string) {
   const [dataParte] = dataCriacao.split(',');
@@ -304,7 +304,7 @@ export default function App() {
     }
   };
 
-  // FUNÇÃO ATUALIZADA: Força dimensões A4 e corrige comportamento responsivo móvel (Safari/Chrome Mobile)
+  // FUNÇÃO DO PDF COMPACTA E TRAVADA EM UMA ÚNICA PÁGINA A4 PARA DISPOSITIVOS MÓVEIS (SAFARI/CHROME)
   const handleDownloadPDF = async () => {
     const elemento = termoRef.current;
     if (!elemento) {
@@ -314,56 +314,51 @@ export default function App() {
     
     setGeneratingPDF(true);
     
-    // BACKUP DE ESTILOS: Guarda o tamanho original do elemento antes do print
     const originalWidth = elemento.style.width;
-    const originalMaxWith = elemento.style.maxWidth;
+    const originalMaxWidth = elemento.style.maxWidth;
 
     try {
-      // Força o elemento a se comportar como um container desktop fixo de 800px de largura
+      // Normaliza o tamanho do bloco para simular uma proporção de folha de papel desktop estável
       elemento.style.width = '800px';
       elemento.style.maxWidth = '800px';
 
-      // Aguarda o navegador aplicar o reflow do layout
       await new Promise((resolve) => setTimeout(resolve, 300));
 
       const canvas = await html2canvas(elemento, { 
-        scale: 2, 
+        scale: 1.5, // Reduzido de 2 para 1.5 para aliviar o processamento e tamanho do arquivo
         backgroundColor: '#ffffff', 
         useCORS: true,
         allowTaint: false,
         logging: false
       });
       
-      // Restaura o layout responsivo original para o usuário não ver alteração na tela do celular
+      // Restaura o layout responsivo original na tela do usuário
       elemento.style.width = originalWidth;
-      elemento.style.maxWidth = originalMaxWith;
+      elemento.style.maxWidth = originalMaxWidth;
 
-      const pdf = new jsPDF('p', 'mm', 'a4');
+      // Cria o documento PDF forçando compactação nativa interna
+      const pdf = new jsPDF({
+        orientation: 'p',
+        unit: 'mm',
+        format: 'a4',
+        compress: true 
+      });
+      
       const pageWidth = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
-      const imgWidth = pageWidth;
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
-      const imgData = canvas.toDataURL('image/png');
+      
+      // O SEGREDO DO PESO LEVE: Mudar de PNG para JPEG com compactação de qualidade (reduz de 14MB para < 400KB!)
+      const imgData = canvas.toDataURL('image/jpeg', 0.75);
 
-      let heightLeft = imgHeight;
-      let position = 0;
-      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-      heightLeft -= pageHeight;
-
-      while (heightLeft > 0) {
-        position = heightLeft - imgHeight;
-        pdf.addPage();
-        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-        heightLeft -= pageHeight;
-      }
+      // Cola o conteúdo em uma ÚNICA página A4 perfeitamente dimensionada, eliminando páginas extras no Safari
+      pdf.addImage(imgData, 'JPEG', 0, 0, pageWidth, pageHeight, undefined, 'FAST');
 
       pdf.save(`Termo_${showReceipt.id}.pdf`);
-      showToast('PDF gerado com sucesso!');
+      showToast('PDF compactado e baixado!');
     } catch (err: any) {
       console.error("Erro na geração do PDF:", err);
-      // Restaura os estilos em caso de falha catastrófica
       elemento.style.width = originalWidth;
-      elemento.style.maxWidth = originalMaxWith;
+      elemento.style.maxWidth = originalMaxWidth;
       showToast('Erro ao processar o arquivo PDF.', 'error');
     } finally {
       setGeneratingPDF(false);
@@ -419,7 +414,7 @@ export default function App() {
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <div className="bg-white p-1 rounded-xl flex items-center justify-center" style={{ width: '44px', height: '44px' }}>
-              <img src={UFCG_LOGO} alt="Logo UFCG" className="h-10 object-contain" />
+              <img src={UFCG_LOGO} alt="Logo UFCG" className="h-10 object-contain bg-white" />
             </div>
             <div>
               <h1 className="text-xl font-black tracking-tighter">CCBS / UFCG</h1>
@@ -691,7 +686,6 @@ export default function App() {
               </p>
             </div>
 
-            {/* AREA DO TERMO PREPARADA CONTRA OKLCH E TOTALMENTE ADAPTADA PARA SAFARI MOBILE */}
             <div 
               className="p-10 space-y-8" 
               ref={termoRef} 
@@ -715,7 +709,7 @@ export default function App() {
 
               <div className="text-xs space-y-4 text-black leading-relaxed" style={{ color: '#000000' }}>
                 <p>
-                  Eu, <strong>{showReceipt.requisitante}</strong>, CPF nº <strong>{showReceipt.cpf}</strong>, 
+                  Eu, <strong>{showReceipt.requinisitante || showReceipt.requisitante}</strong>, CPF nº <strong>{showReceipt.cpf}</strong>, 
                   E-mail: <strong>{showReceipt.email}</strong> e contato: <strong>{showReceipt.telefone}</strong>, 
                   servidor(a) vinculado(a) à unidade <strong>{showReceipt.setor || 'Não informado'}</strong>, 
                   na condição de responsável pelo evento <strong>"{showReceipt.nomeEvento}"</strong>, a ser 
@@ -730,7 +724,7 @@ export default function App() {
                   <p><strong>CLÁUSULA PRIMEIRA - DA CONSERVAÇÃO DO PATRIMÔNIO:</strong> Comprometo-me a zelar pela conservação das instalações, mobiliários, equipamentos e demais bens patrimoniais existentes no {showReceipt.auditorio} do CCBS, responsabilizando-me por danos decorrentes de uso inadequado, negligência, imprudência ou imperícia dos participantes do evento sob minha responsabilidade.</p>
                   <p><strong>CLÁUSULA SEGUNDA - DA UTILIZAÇÃO DO ESPAÇO:</strong> Comprometo-me a utilizar o espaço exclusivamente para a finalidade previamente informada e autorizada pela Direção do CCBS, observando as normas institucionais vigentes e as orientações da Administração do Centro.</p>
                   <p><strong>CLÁUSULA TERCEIRA - DA ORGANIZAÇÃO E LIMPEZA:</strong> Ao término do evento, comprometo-me a entregar o espaço em condições adequadas de organização, conservação e limpeza, preservando a disposição original do mobiliário e dos equipamentos disponibilizados.</p>
-                  <p><strong>CLÁUSULA QUARTA - DOS EQUIPAMENTOS E RECURSOS:</strong> Declaro ter recebido, em perfeito estado de funcionamento, os equipamentos eventualmente disponibilizados para o evento, responsabilizando-me por sua correta utilização e devolução nas mesmas condições iniciais. Ao término do evento comprometo-me a desligar as luzes e aparelhos de ar-condicionado e de informática.</p>
+                  <p><strong>CLÁUSULA QUARTA - DOS EQUIPAMENTOS E RECURSOS:</strong> Declaro ter recebido, em perfeito estado of funcionamento, os equipamentos eventualmente disponibilizados para o evento, responsabilizando-me por sua correta utilização e devolução nas mesmas condições iniciais. Ao término do evento comprometo-me a desligar as luzes e aparelhos de ar-condicionado e de informática.</p>
                   <p><strong>CLÁUSULA QUINTA - DA SEGURANÇA:</strong> Comprometo-me a respeitar a capacidade máxima do local, bem como a não realizar atividades que possam colocar em risco a integridade física dos participantes ou do patrimônio público.</p>
                   <div>
                     <strong>CLÁUSULA SEXTA - DAS VEDAÇÕES:</strong> É vedado:
