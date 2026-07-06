@@ -25,13 +25,14 @@ import {
   Shield,
   Github,
   CreditCard,
-  QrCode
+  QrCode,
+  Search
 } from 'lucide-react';
 
 // Importações do Firebase
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, collection, onSnapshot, doc, setDoc, deleteDoc } from 'firebase/firestore';
+import { getFirestore, collection, onSnapshot, doc, getDoc, setDoc, deleteDoc } from 'firebase/firestore';
 
 // --- CONFIGURAÇÃO DO FIREBASE ---
 const firebaseConfig = {
@@ -56,8 +57,10 @@ const HORARIOS = [
   '12:00', '13:00', '14:00', '15:00', '16:00', '17:00'
 ];
 const MASTER_PASSWORD = 'adminCCBS2026';
-const UFCG_LOGO = 'https://www.cdsa.ufcg.edu.br/images/logos/UFCG-Central-Selo-SemFundo.png';
-const CCBS_LOGO = 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcR2lRf3SyVtqk3lf_Ba9B1kgjzXr_FP8RrB1-xIIcgrh_3eJwVg0N-BY-s&s=10';
+
+// LOGOS ATUALIZADAS (Com proxy de segurança anti-travamento)
+const UFCG_LOGO = 'https://images.weserv.nl/?url=www.cdsa.ufcg.edu.br/images/logos/UFCG-Central-Selo-SemFundo.png';
+const CCBS_LOGO = 'https://images.weserv.nl/?url=encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcR2lRf3SyVtqk3lf_Ba9B1kgjzXr_FP8RrB1-xIIcgrh_3eJwVg0N-BY-s';
 
 function formatarDataExtenso(dataCriacao: string) {
   const [dataParte] = dataCriacao.split(',');
@@ -83,6 +86,12 @@ export default function App() {
   
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDayReservas, setSelectedDayReservas] = useState<{date: string, items: any[]} | null>(null);
+
+  // --- NOVOS ESTADOS PARA SEGUNDA VIA ---
+  const [showReprintModal, setShowReprintModal] = useState(false);
+  const [reprintId, setReprintId] = useState('');
+  const [reprintPassword, setReprintPassword] = useState('');
+  const [loadingSecondCopy, setLoadingSecondCopy] = useState(false);
 
   const [formData, setFormData] = useState({
     auditorio: AUDITORIOS[0],
@@ -259,12 +268,55 @@ export default function App() {
     }
   };
 
+  // --- NOVA FUNÇÃO: BUSCAR SEGUNDA VIA DO TERMO ---
+  const handleFetchSecondCopy = async () => {
+    if (!reprintId || !reprintPassword) {
+      showToast('Insira o Protocolo e a Senha!', 'error');
+      return;
+    }
+    setLoadingSecondCopy(true);
+    try {
+      const docRef = doc(db, 'artifacts', appId as string, 'public', 'data', 'reservas_ccbs', reprintId.toUpperCase().trim());
+      const docSnap = await getDoc(docRef);
+
+      if (docSnap.exists()) {
+        const dadosReserva = docSnap.data();
+        if (reprintPassword === dadosReserva.senha || reprintPassword === MASTER_PASSWORD) {
+          setShowReceipt(dadosReserva); // Abre o termo na tela
+          setShowReprintModal(false);   // Fecha o formulário de busca
+          setReprintId('');
+          setReprintPassword('');
+          showToast('Termo localizado com sucesso!');
+        } else {
+          showToast('Senha incorreta para este protocolo!', 'error');
+        }
+      } else {
+        showToast('Protocolo não encontrado no sistema.', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Erro ao buscar dados no servidor.', 'error');
+    } finally {
+      setLoadingSecondCopy(false);
+    }
+  };
+
   const handleDownloadPDF = async () => {
     const elemento = document.getElementById('termo-pdf-content');
     if (!elemento) return;
     setGeneratingPDF(true);
+    
     try {
-      const canvas = await html2canvas(elemento, { scale: 2, backgroundColor: '#ffffff', useCORS: true });
+      await new Promise((resolve) => setTimeout(resolve, 500));
+
+      const canvas = await html2canvas(elemento, { 
+        scale: 2, 
+        backgroundColor: '#ffffff', 
+        useCORS: true,
+        allowTaint: false,
+        logging: false
+      });
+      
       const pdf = new jsPDF('p', 'mm', 'a4');
       const pageWidth = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
@@ -351,23 +403,33 @@ export default function App() {
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <div className="bg-white p-1 rounded-xl">
-              <img src={UFCG_LOGO} alt="Logo UFCG" className="h-10 object-contain" />
+              <img src={UFCG_LOGO} alt="Logo UFCG" className="h-10 object-contain" crossOrigin="anonymous" />
             </div>
             <div>
               <h1 className="text-xl font-black tracking-tighter">CCBS / UFCG</h1>
               <p className="text-blue-200 text-[11px] uppercase font-black tracking-[0.2em]">CAMPINA GRANDE</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.8)]"></div>
-            <span className="text-[10px] font-black bg-blue-800/50 px-3 py-1 rounded-full border border-blue-500/30">NUVEM ATIVA</span>
+          
+          {/* BOTÃO DA SEGUNDA VIA ADICIONADO NO CABEÇALHO */}
+          <div className="flex items-center gap-4">
+            <button 
+              onClick={() => setShowReprintModal(true)}
+              className="bg-white text-blue-700 hover:bg-blue-50 font-black text-[11px] uppercase px-4 py-2 rounded-xl shadow transition-all flex items-center gap-2 cursor-pointer"
+            >
+              <FileText className="w-3.5 h-3.5" /> 2ª Via do Termo
+            </button>
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse"></div>
+              <span className="text-[10px] font-black bg-blue-800/50 px-3 py-1 rounded-full border border-blue-500/30">NUVEM ATIVA</span>
+            </div>
           </div>
         </div>
       </header>
 
       <main className="max-w-7xl mx-auto px-4 py-8 grid grid-cols-1 lg:grid-cols-12 gap-8 print:hidden flex-1">
         
-        {/* FORMULÁRIO DE AGENDAMENTO (ESQUERDA) */}
+        {/* FORMULÁRIO DE AGENDAMENTO */}
         <div className="lg:col-span-4">
           <div className="bg-white rounded-[2rem] shadow-2xl border border-slate-200 overflow-hidden sticky top-24">
             <div className="bg-blue-800 p-6 flex items-center justify-between">
@@ -446,7 +508,7 @@ export default function App() {
           </div>
         </div>
 
-        {/* VISUALIZAÇÃO DO CALENDÁRIO (DIREITA) */}
+        {/* CALENDÁRIO */}
         <div className="lg:col-span-8 space-y-6 relative">
           <div className="bg-white rounded-[2.5rem] shadow-xl border border-slate-200 overflow-hidden">
             <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
@@ -481,7 +543,7 @@ export default function App() {
             </div>
           </div>
 
-          {/* PAINEL DE DETALHES DO DIA */}
+          {/* DETALHES DO DIA */}
           {selectedDayReservas && (
             <div className="bg-slate-900 rounded-[2rem] p-8 text-white shadow-2xl animate-in slide-in-from-right duration-500 relative overflow-hidden">
                <div className="absolute top-0 right-0 w-32 h-32 bg-blue-600/10 rounded-full -mr-16 -mt-16 blur-3xl"></div>
@@ -552,12 +614,61 @@ export default function App() {
         </div>
       </footer>
 
-      {/* TERMO DE RESPONSABILIDADE (Gerado após reserva) */}
+      {/* MODAL: SOLICITAR SEGUNDA VIA DO TERMO */}
+      {showReprintModal && (
+        <div className="fixed inset-0 bg-slate-900/95 backdrop-blur-md z-[130] flex items-center justify-center p-4 print:hidden">
+          <div className="bg-white rounded-[2rem] p-8 max-w-sm w-full shadow-2xl text-center">
+            <div className="bg-blue-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-blue-600">
+              <Search className="w-7 h-7" />
+            </div>
+            <h3 className="text-lg font-black uppercase mb-1">Segunda Via do Termo</h3>
+            <p className="text-slate-500 text-xs mb-6">Insira os dados do agendamento para recuperar o seu documento.</p>
+            
+            <div className="space-y-3 text-left mb-6">
+              <div>
+                <label className="text-[9px] font-black text-slate-400 uppercase ml-1">Código de Protocolo (ID)</label>
+                <input 
+                  type="text" 
+                  value={reprintId} 
+                  onChange={(e) => setReprintId(e.target.value)} 
+                  className="w-full p-3.5 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold uppercase focus:border-blue-500 outline-none text-center"
+                  placeholder="EX: A1B2C3D4E" 
+                />
+              </div>
+              <div>
+                <label className="text-[9px] font-black text-slate-400 uppercase ml-1">Senha do Utilizador</label>
+                <input 
+                  type="password" 
+                  value={reprintPassword} 
+                  onChange={(e) => setReprintPassword(e.target.value)} 
+                  className="w-full p-3.5 bg-slate-50 border-2 border-slate-100 rounded-xl font-black tracking-widest focus:border-blue-500 outline-none text-center"
+                  placeholder="••••••••" 
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <button 
+                onClick={handleFetchSecondCopy} 
+                disabled={loadingSecondCopy}
+                className="w-full py-4 bg-blue-600 text-white font-black rounded-xl uppercase tracking-widest text-[10px] hover:bg-blue-700 shadow-md shadow-blue-500/20 transition-all flex items-center justify-center gap-2"
+              >
+                {loadingSecondCopy ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
+                {loadingSecondCopy ? 'Buscando...' : 'Buscar e Gerar Termo'}
+              </button>
+              <button onClick={() => { setShowReprintModal(false); setReprintId(''); setReprintPassword(''); }} className="py-2 text-slate-400 font-bold uppercase text-[9px] hover:text-slate-600">
+                Voltar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TERMO DE RESPONSABILIDADE */}
       {showReceipt && (
         <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[100] flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white rounded-none md:rounded-[2rem] w-full max-w-3xl shadow-2xl overflow-hidden my-auto">
             
-            {/* Aviso Amarelo */}
             <div className="bg-yellow-100 border-b-2 border-yellow-300 p-4 text-center">
               <p className="text-yellow-800 text-sm font-bold flex items-center justify-center gap-2">
                 <AlertCircle className="w-5 h-5" /> 
@@ -565,7 +676,7 @@ export default function App() {
               </p>
             </div>
 
-            {/* Conteúdo que será capturado para o PDF */}
+            {/* CONTEÚDO CAPTURADO PARA O PDF */}
             <div className="p-10 space-y-8" id="termo-pdf-content">
               <div className="flex justify-between items-center pb-4">
                  <img src={UFCG_LOGO} alt="UFCG" className="h-14 w-14 object-contain" crossOrigin="anonymous" />
@@ -689,7 +800,7 @@ export default function App() {
         </div>
       )}
 
-      {/* NOTIFICAÇÕES (Toasts) */}
+      {/* NOTIFICAÇÕES */}
       {toast && (
         <div className={`fixed bottom-8 left-1/2 -translate-x-1/2 z-[150] px-8 py-4 rounded-full shadow-2xl animate-in slide-in-from-bottom duration-300 font-black text-xs uppercase tracking-widest ${
           toast.type === 'error' ? 'bg-red-600 text-white' : 'bg-blue-600 text-white'
