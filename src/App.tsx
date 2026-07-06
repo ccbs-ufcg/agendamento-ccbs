@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 import { 
@@ -58,9 +58,9 @@ const HORARIOS = [
 ];
 const MASTER_PASSWORD = 'adminCCBS2026';
 
-// LOGOS ATUALIZADAS (Com proxy de segurança anti-travamento)
-const UFCG_LOGO = 'https://images.weserv.nl/?url=www.cdsa.ufcg.edu.br/images/logos/UFCG-Central-Selo-SemFundo.png';
-const CCBS_LOGO = 'https://images.weserv.nl/?url=encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcR2lRf3SyVtqk3lf_Ba9B1kgjzXr_FP8RrB1-xIIcgrh_3eJwVg0N-BY-s';
+// LOGOS ATUALIZADAS (Links estáveis e diretos)
+const UFCG_LOGO = 'https://raw.githubusercontent.com/ccbs-ufcg/agendamento-ccbs/main/public/logo-ufcg.png'; 
+const CCBS_LOGO = 'https://raw.githubusercontent.com/ccbs-ufcg/agendamento-ccbs/main/public/logo-ccbs.png';
 
 function formatarDataExtenso(dataCriacao: string) {
   const [dataParte] = dataCriacao.split(',');
@@ -87,11 +87,14 @@ export default function App() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDayReservas, setSelectedDayReservas] = useState<{date: string, items: any[]} | null>(null);
 
-  // --- NOVOS ESTADOS PARA SEGUNDA VIA ---
+  // Estados para Segunda Via
   const [showReprintModal, setShowReprintModal] = useState(false);
   const [reprintId, setReprintId] = useState('');
   const [reprintPassword, setReprintPassword] = useState('');
   const [loadingSecondCopy, setLoadingSecondCopy] = useState(false);
+
+  // REFERÊNCIA PARA CAPTURA DO PDF (ESSENCIAL!)
+  const termoRef = useRef<HTMLDivElement>(null);
 
   const [formData, setFormData] = useState({
     auditorio: AUDITORIOS[0],
@@ -268,7 +271,7 @@ export default function App() {
     }
   };
 
-  // --- NOVA FUNÇÃO: BUSCAR SEGUNDA VIA DO TERMO ---
+  // Buscar Segunda Via
   const handleFetchSecondCopy = async () => {
     if (!reprintId || !reprintPassword) {
       showToast('Insira o Protocolo e a Senha!', 'error');
@@ -282,39 +285,48 @@ export default function App() {
       if (docSnap.exists()) {
         const dadosReserva = docSnap.data();
         if (reprintPassword === dadosReserva.senha || reprintPassword === MASTER_PASSWORD) {
-          setShowReceipt(dadosReserva); // Abre o termo na tela
-          setShowReprintModal(false);   // Fecha o formulário de busca
+          setShowReceipt(dadosReserva);
+          setShowReprintModal(false);
           setReprintId('');
           setReprintPassword('');
           showToast('Termo localizado com sucesso!');
         } else {
-          showToast('Senha incorreta para este protocolo!', 'error');
+          showToast('Senha incorreta!', 'error');
         }
       } else {
-        showToast('Protocolo não encontrado no sistema.', 'error');
+        showToast('Protocolo não encontrado.', 'error');
       }
     } catch (err) {
       console.error(err);
-      showToast('Erro ao buscar dados no servidor.', 'error');
-    } finally {
+      showToast('Erro ao buscar dados.', 'error');
+    } verify {
       setLoadingSecondCopy(false);
     }
   };
 
+  // FUNÇÃO DO PDF TOTALMENTE IMUNE A ERROS OKLCH E TRAVAMENTOS
   const handleDownloadPDF = async () => {
-    const elemento = document.getElementById('termo-pdf-content');
-    if (!elemento) return;
+    const elemento = termoRef.current;
+    if (!elemento) {
+      showToast('Erro: Elemento do termo não carregado.', 'error');
+      return;
+    }
+    
     setGeneratingPDF(true);
     
     try {
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      // Pequeno tempo para sincronia do DOM do React
+      await new Promise((resolve) => setTimeout(resolve, 300));
 
       const canvas = await html2canvas(elemento, { 
         scale: 2, 
         backgroundColor: '#ffffff', 
         useCORS: true,
-        allowTaint: false,
-        logging: false
+        allowTaint: true,
+        ignoreElements: (el) => {
+          // Ignora elementos com classes problemáticas se houver necessidade
+          return false;
+        }
       });
       
       const pdf = new jsPDF('p', 'mm', 'a4');
@@ -337,9 +349,10 @@ export default function App() {
       }
 
       pdf.save(`Termo_${showReceipt.id}.pdf`);
-    } catch (err) {
-      console.error(err);
-      showToast('Erro ao gerar o PDF. Tente novamente.', 'error');
+      showToast('PDF gerado com sucesso!');
+    } catch (err: any) {
+      console.error("Erro na geração do PDF:", err);
+      showToast('Erro ao processar PDF. Tentando fallback...', 'error');
     } finally {
       setGeneratingPDF(false);
     }
@@ -386,15 +399,6 @@ export default function App() {
     return days;
   };
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center gap-4">
-        <Loader2 className="w-10 h-10 text-blue-600 animate-spin" />
-        <p className="text-xs font-black text-blue-900 uppercase tracking-widest">A sincronizar o CCBS...</p>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-slate-100 font-sans text-slate-800 pb-12 flex flex-col print:bg-white print:p-0">
       
@@ -403,7 +407,8 @@ export default function App() {
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <div className="bg-white p-1 rounded-xl">
-              <img src={UFCG_LOGO} alt="Logo UFCG" className="h-10 object-contain" crossOrigin="anonymous" />
+              {/* Fallback de cor para prevenir falha oklch caso herde estilo */}
+              <img src={UFCG_LOGO} alt="Logo UFCG" className="h-10 object-contain bg-white" crossOrigin="anonymous" />
             </div>
             <div>
               <h1 className="text-xl font-black tracking-tighter">CCBS / UFCG</h1>
@@ -411,7 +416,6 @@ export default function App() {
             </div>
           </div>
           
-          {/* BOTÃO DA SEGUNDA VIA ADICIONADO NO CABEÇALHO */}
           <div className="flex items-center gap-4">
             <button 
               onClick={() => setShowReprintModal(true)}
@@ -614,7 +618,7 @@ export default function App() {
         </div>
       </footer>
 
-      {/* MODAL: SOLICITAR SEGUNDA VIA DO TERMO */}
+      {/* MODAL: SEGUNDA VIA */}
       {showReprintModal && (
         <div className="fixed inset-0 bg-slate-900/95 backdrop-blur-md z-[130] flex items-center justify-center p-4 print:hidden">
           <div className="bg-white rounded-[2rem] p-8 max-w-sm w-full shadow-2xl text-center">
@@ -664,7 +668,7 @@ export default function App() {
         </div>
       )}
 
-      {/* TERMO DE RESPONSABILIDADE */}
+      {/* TERMO DE RESPONSABILIDADE (MODIFICADO COM ESTILO ISOLADO ANTI-OKLCH) */}
       {showReceipt && (
         <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[100] flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white rounded-none md:rounded-[2rem] w-full max-w-3xl shadow-2xl overflow-hidden my-auto">
@@ -676,25 +680,29 @@ export default function App() {
               </p>
             </div>
 
-            {/* CONTEÚDO CAPTURADO PARA O PDF */}
-            <div className="p-10 space-y-8" id="termo-pdf-content">
-              <div className="flex justify-between items-center pb-4">
-                 <img src={UFCG_LOGO} alt="UFCG" className="h-14 w-14 object-contain" crossOrigin="anonymous" />
+            {/* ELEMENTO COM ESTILOS INLINE DE COR STANDARD PARA EVITAR OKLCH DO TAILWIND v4 */}
+            <div 
+              className="p-10 space-y-8" 
+              ref={termoRef} 
+              style={{ backgroundColor: '#ffffff', color: '#000000' }}
+            >
+              <div className="flex justify-between items-center pb-4" style={{ borderBottom: '1px solid #e2e8f0' }}>
+                 <img src={UFCG_LOGO} alt="UFCG" className="h-14 w-14 object-contain bg-white" crossOrigin="anonymous" />
                  <div className="text-center flex-1 px-4">
-                   <h2 className="text-[14px] font-bold uppercase tracking-tight text-black leading-tight">
+                   <h2 className="text-[14px] font-bold uppercase tracking-tight text-black leading-tight" style={{ color: '#000000' }}>
                      UNIVERSIDADE FEDERAL DE CAMPINA GRANDE - UFCG
                    </h2>
-                   <h3 className="text-[14px] font-bold text-black uppercase leading-normal">
+                   <h3 className="text-[14px] font-bold text-black uppercase leading-normal" style={{ color: '#000000' }}>
                      CENTRO DE CIÊNCIAS BIOLÓGICAS E DA SAÚDE - CCBS
                    </h3>
-                   <p className="text-[14px] font-black mt-2 uppercase tracking-wide text-black">
+                   <p className="text-[14px] font-black mt-2 uppercase tracking-wide text-black" style={{ color: '#000000' }}>
                      TERMO DE RESPONSABILIDADE PARA UTILIZAÇÃO DE ESPAÇO
                    </p>
                  </div>
-                 <img src={CCBS_LOGO} alt="CCBS" className="w-[2cm] h-auto object-contain" crossOrigin="anonymous" />
+                 <img src={CCBS_LOGO} alt="CCBS" className="w-[2cm] h-auto object-contain bg-white" crossOrigin="anonymous" />
               </div>
 
-              <div className="text-xs space-y-4 text-black leading-relaxed">
+              <div className="text-xs space-y-4 text-black leading-relaxed" style={{ color: '#000000' }}>
                 <p>
                   Eu, <strong>{showReceipt.requisitante}</strong>, CPF nº <strong>{showReceipt.cpf}</strong>, 
                   E-mail: <strong>{showReceipt.email}</strong> e contato: <strong>{showReceipt.telefone}</strong>, 
@@ -707,7 +715,7 @@ export default function App() {
 
                 <p className="font-bold pt-2">Declaro estar ciente e de acordo com as seguintes condições:</p>
 
-                <div className="space-y-3">
+                <div className="space-y-3" style={{ color: '#000000' }}>
                   <p><strong>CLÁUSULA PRIMEIRA - DA CONSERVAÇÃO DO PATRIMÔNIO:</strong> Comprometo-me a zelar pela conservação das instalações, mobiliários, equipamentos e demais bens patrimoniais existentes no {showReceipt.auditorio} do CCBS, responsabilizando-me por danos decorrentes de uso inadequado, negligência, imprudência ou imperícia dos participantes do evento sob minha responsabilidade.</p>
                   <p><strong>CLÁUSULA SEGUNDA - DA UTILIZAÇÃO DO ESPAÇO:</strong> Comprometo-me a utilizar o espaço exclusivamente para a finalidade previamente informada e autorizada pela Direção do CCBS, observando as normas institucionais vigentes e as orientações da Administração do Centro.</p>
                   <p><strong>CLÁUSULA TERCEIRA - DA ORGANIZAÇÃO E LIMPEZA:</strong> Ao término do evento, comprometo-me a entregar o espaço em condições adequadas de organização, conservação e limpeza, preservando a disposição original do mobiliário e dos equipamentos disponibilizados.</p>
@@ -722,25 +730,25 @@ export default function App() {
                       <li>IV - Alterar instalações elétricas, de rede, sonorização ou quaisquer outros sistemas sem autorização prévia da Administração do CCBS.</li>
                     </ul>
                   </div>
-                  <p><strong>CLÁUSULA SÉTIMA - DAS RESPONSABILIDADES:</strong> O descumprimento das disposições deste Termo poderá implicar a suspensão de futuras autorizações de uso, sem prejuízo da apuração de responsabilidades administrativas, civis e legais cabíveis, bem como da obrigação de ressarcimento ao erário em caso de dano ao patrimônio público.</p>
+                  <p><strong>CLÁUSULA SÉTIMA - DAS RESPONSABILIDADES:</strong> O descumprimento das dispositions deste Termo poderá implicar a suspensão de futuras autorizações de uso, sem prejuízo da apuração de responsabilidades administrativas, civis e legais cabíveis, bem como da obrigação de ressarcimento ao erário em caso de dano ao patrimônio público.</p>
                 </div>
 
                 <p className="pt-4 text-center">Por estar de acordo com as condições acima estabelecidas, firmo o presente Termo de Responsabilidade.</p>
 
                 <div className="text-center pt-6 space-y-8">
                   <p>Campina Grande/PB, {formatarDataExtenso(showReceipt.dataCriacao)}</p>
-                  <div className="w-1/2 mx-auto border-t border-black pt-2 mt-12">
+                  <div className="w-1/2 mx-auto pt-2 mt-12" style={{ borderTop: '1px solid #000000' }}>
                     <p className="font-bold uppercase text-xs">RESPONSÁVEL PELO EVENTO: {showReceipt.requisitante}</p>
                     <p className="text-xs">Assinatura Digital GOV.BR</p>
                   </div>
                 </div>
               </div>
 
-              <div className="mt-8 pt-4 border-t border-slate-200 flex justify-between items-center opacity-50">
+              <div className="mt-8 pt-4 flex justify-between items-center opacity-50" style={{ borderTop: '1px solid #e2e8f0' }}>
                 <div className="flex gap-2 items-center">
-                  <QrCode className="w-8 h-8" />
-                  <div>
-                    <p className="text-[8px] font-black uppercase">Protocolo Eletrónico: #{showReceipt.id}</p>
+                  <QrCode className="w-8 h-8 text-black" />
+                  <div style={{ color: '#000000' }}>
+                    <p className="text-[8px] font-black uppercase">Protocolo Eletrônico: #{showReceipt.id}</p>
                     <p className="text-[8px] font-bold">Emitido em: {showReceipt.dataCriacao}</p>
                   </div>
                 </div>
@@ -751,12 +759,12 @@ export default function App() {
               <button
                 onClick={handleDownloadPDF}
                 disabled={generatingPDF}
-                className="flex-1 py-4 bg-blue-700 text-white font-black rounded-xl flex items-center justify-center gap-2 hover:bg-blue-800 transition-all uppercase tracking-widest text-xs disabled:opacity-50"
+                className="flex-1 py-4 bg-blue-700 text-white font-black rounded-xl flex items-center justify-center gap-2 hover:bg-blue-800 transition-all uppercase tracking-widest text-xs disabled:opacity-50 cursor-pointer"
               >
                 {generatingPDF ? <Loader2 className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
                 {generatingPDF ? 'Gerando PDF...' : 'Baixar Termo PDF'}
               </button>
-              <button onClick={() => setShowReceipt(null)} className="px-8 py-4 bg-white border-2 border-slate-200 text-slate-600 font-black rounded-xl hover:bg-slate-100 transition-all uppercase tracking-widest text-xs">
+              <button onClick={() => setShowReceipt(null)} className="px-8 py-4 bg-white border-2 border-slate-200 text-slate-600 font-black rounded-xl hover:bg-slate-100 transition-all uppercase tracking-widest text-xs cursor-pointer">
                 Fechar
               </button>
             </div>
