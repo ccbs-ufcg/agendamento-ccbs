@@ -51,14 +51,15 @@ const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 const appId = 'ccbs-agendamento-final';
 
 // --- CONSTANTES ---
-const AUDITORIOS = ['AUDITÓRIO', 'SALA DE REUNIÃO'];
+// ETAPA EDUCATIVA: Adicionamos a 'SALA 01' como o terceiro elemento da lista de locais estáveis.
+const AUDITORIOS = ['AUDITÓRIO', 'SALA DE REUNIÃO', 'SALA 01'];
 const HORARIOS = [
   '07:00', '08:00', '09:00', '10:00', '11:00', 
   '12:00', '13:00', '14:00', '15:00', '16:00', '17:00'
 ];
 const MASTER_PASSWORD = 'adminCCBS2026';
 
-// LOGOS CORRIGIDAS: Agora apontando direto para a raiz da pasta public local através do build do Vite
+// LOGOS CORRIGIDAS: Buscando direto do diretório base do deploy
 const UFCG_LOGO = '/logo-ufcg.png'; 
 const CCBS_LOGO = '/logo-ccbs.png';
 
@@ -271,7 +272,6 @@ export default function App() {
     }
   };
 
-  // Buscar Segunda Via
   const handleFetchSecondCopy = async () => {
     if (!reprintId || !reprintPassword) {
       showToast('Insira o Protocolo e a Senha!', 'error');
@@ -304,7 +304,6 @@ export default function App() {
     }
   };
 
-  // FUNÇÃO DO PDF COMPACTA E TRAVADA EM UMA ÚNICA PÁGINA A4 PARA DISPOSITIVOS MÓVEIS (SAFARI/CHROME)
   const handleDownloadPDF = async () => {
     const elemento = termoRef.current;
     if (!elemento) {
@@ -313,12 +312,10 @@ export default function App() {
     }
     
     setGeneratingPDF(true);
-    
     const originalWidth = elemento.style.width;
     const originalMaxWidth = elemento.style.maxWidth;
 
     try {
-      // Normaliza o tamanho do bloco para simular uma proporção de folha de papel desktop estável
       elemento.style.width = '800px';
       elemento.style.maxWidth = '800px';
 
@@ -332,11 +329,9 @@ export default function App() {
         logging: false
       });
       
-      // Restaura o layout responsivo original na tela do usuário
       elemento.style.width = originalWidth;
       elemento.style.maxWidth = originalMaxWidth;
 
-      // Cria o documento PDF forçando compactação nativa interna
       const pdf = new jsPDF({
         orientation: 'p',
         unit: 'mm',
@@ -346,13 +341,9 @@ export default function App() {
       
       const pageWidth = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
-      
-      // O SEGREDO DO PESO LEVE: Mudar de PNG para JPEG com compactação de qualidade (reduz de 14MB para < 400KB!)
       const imgData = canvas.toDataURL('image/jpeg', 0.75);
 
-      // Cola o conteúdo em uma ÚNICA página A4 perfeitamente dimensionada, eliminando páginas extras no Safari
       pdf.addImage(imgData, 'JPEG', 0, 0, pageWidth, pageHeight, undefined, 'FAST');
-
       pdf.save(`Termo_${showReceipt.id}.pdf`);
       showToast('PDF compactado e baixado!');
     } catch (err: any) {
@@ -363,6 +354,14 @@ export default function App() {
     } finally {
       setGeneratingPDF(false);
     }
+  };
+
+  // ETAPA EDUCATIVA: Função auxiliar para retornar a classe css de cor do Tailwind dependendo do local selecionado
+  const obterCorLocal = (local: string) => {
+    if (local === 'AUDITÓRIO') return 'bg-blue-600';
+    if (local === 'SALA DE REUNIÃO') return 'bg-cyan-500';
+    if (local === 'SALA 01') return 'bg-emerald-600'; // Nova cor personalizada para a Sala 01
+    return 'bg-slate-600';
   };
 
   const renderCalendar = () => {
@@ -393,8 +392,11 @@ export default function App() {
           <span className={`text-xs font-black ${isToday ? 'text-blue-600' : 'text-slate-400'}`}>{d}</span>
           <div className="mt-1 space-y-1">
             {dayReservas.slice(0, 2).map((r, idx) => (
-              <div key={idx} className={`text-[8px] md:text-[9px] truncate px-1 rounded font-bold text-white uppercase
-                ${r.auditorio === 'AUDITÓRIO' ? 'bg-blue-600' : 'bg-cyan-500'}`} title={r.nomeEvento}>
+              <div 
+                key={idx} 
+                className={`text-[8px] md:text-[9px] truncate px-1 rounded font-bold text-white uppercase ${obterCorLocal(r.auditorio)}`} 
+                title={r.nomeEvento}
+              >
                 {r.horaInicio} {r.nomeEvento || r.requisitante.split(' ')[0]}
               </div>
             ))}
@@ -547,9 +549,11 @@ export default function App() {
             
             <div className="grid grid-cols-7">{renderCalendar()}</div>
             
-            <div className="p-4 bg-slate-50 flex gap-6 justify-center border-t border-slate-100">
+            {/* ETAPA EDUCATIVA: Adicionada a legenda visual da SALA 01 no rodapé do calendário */}
+            <div className="p-4 bg-slate-50 flex flex-wrap gap-6 justify-center border-t border-slate-100">
               <div className="flex items-center gap-2"><div className="w-3 h-3 bg-blue-600 rounded-sm"></div><span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Auditório</span></div>
               <div className="flex items-center gap-2"><div className="w-3 h-3 bg-cyan-500 rounded-sm"></div><span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Sala de Reunião</span></div>
+              <div className="flex items-center gap-2"><div className="w-3 h-3 bg-emerald-600 rounded-sm"></div><span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Sala 01</span></div>
             </div>
           </div>
 
@@ -580,7 +584,7 @@ export default function App() {
                    <div key={res.id} className="bg-white/5 border border-white/10 p-5 rounded-2xl relative group hover:bg-white/10 transition-all">
                      <div className="flex justify-between items-start mb-3">
                        <div className="flex items-center gap-2">
-                         <span className={`text-[8px] font-black px-2 py-0.5 rounded uppercase ${res.auditorio === 'AUDITÓRIO' ? 'bg-blue-600' : 'bg-cyan-500'}`}>{res.auditorio}</span>
+                         <span className={`text-[8px] font-black px-2 py-0.5 rounded uppercase ${obterCorLocal(res.auditorio)}`}>{res.auditorio}</span>
                          <span className="text-[10px] font-bold text-blue-300 uppercase">{res.horaInicio} - {res.horaFim}</span>
                        </div>
                        <button onClick={() => setShowCancelModal(res)} className="p-2 bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white rounded-lg transition-all" title="Cancelar este agendamento">
@@ -722,7 +726,7 @@ export default function App() {
 
                 <div className="space-y-3" style={{ color: '#000000' }}>
                   <p><strong>CLÁUSULA PRIMEIRA - DA CONSERVAÇÃO DO PATRIMÔNIO:</strong> Comprometo-me a zelar pela conservação das instalações, mobiliários, equipamentos e demais bens patrimoniais existentes no {showReceipt.auditorio} do CCBS, responsabilizando-me por danos decorrentes de uso inadequado, negligência, imprudência ou imperícia dos participantes do evento sob minha responsabilidade.</p>
-                  <p><strong>CLÁUSULA SECOND - DA UTILIZAÇÃO DO ESPAÇO:</strong> Comprometo-me a utilizar o espaço exclusivamente para a finalidade previamente informada e autorizada pela Direção do CCBS, observando as normas institucionais vigentes e as orientações da Administração do Centro.</p>
+                  <p><strong>CLÁUSULA SEGUNDA - DA UTILIZAÇÃO DO ESPAÇO:</strong> Comprometo-me a utilizar o espaço exclusivamente para a finalidade previamente informada e autorizada pela Direção do CCBS, observando as normas institucionais vigentes e as orientações da Administração do Centro.</p>
                   <p><strong>CLÁUSULA TERCEIRA - DA ORGANIZAÇÃO E LIMPEZA:</strong> Ao término do evento, comprometo-me a entregar o espaço em condições adequadas de organização, conservação e limpeza, preservando a disposição original do mobiliário e dos equipamentos disponibilizados.</p>
                   <p><strong>CLÁUSULA QUARTA - DOS EQUIPAMENTOS E RECURSOS:</strong> Declaro ter recebido, em perfeito estado of funcionamento, os equipamentos eventualmente disponibilizados para o evento, responsabilizando-me por sua correta utilização e devolução nas mesmas condições iniciais. Ao término do evento comprometo-me a desligar as luzes e aparelhos de ar-condicionado e de informática.</p>
                   <p><strong>CLÁUSULA QUINTA - DA SEGURANÇA:</strong> Comprometo-me a respeitar a capacidade máxima do local, bem como a não realizar atividades que possam colocar em risco a integridade física dos participantes ou do patrimônio público.</p>
