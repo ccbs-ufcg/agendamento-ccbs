@@ -299,7 +299,7 @@ export default function App() {
 } catch (err) {
       console.error(err);
       showToast('Erro ao buscar dados.', 'error');
-    } finally { // <-- CORRIGIDO PARA FINALLY
+    } finally {
       setLoadingSecondCopy(false);
     }
   };
