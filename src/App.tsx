@@ -51,7 +51,6 @@ const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 const appId = 'ccbs-agendamento-final';
 
 // --- CONSTANTES ---
-// ETAPA EDUCATIVA: Adicionamos a 'SALA 01' como o terceiro elemento da lista de locais estáveis.
 const AUDITORIOS = ['AUDITÓRIO', 'SALA DE REUNIÃO', 'SALA 01'];
 const HORARIOS = [
   '07:00', '08:00', '09:00', '10:00', '11:00', 
@@ -59,9 +58,9 @@ const HORARIOS = [
 ];
 const MASTER_PASSWORD = 'adminCCBS2026';
 
-// LOGOS CORRIGIDAS: Buscando direto do diretório base do deploy
-const UFCG_LOGO = '/logo-ufcg.png'; 
-const CCBS_LOGO = '/logo-ccbs.png';
+// LOGOS AJUSTADAS: Sem a barra inicial para total compatibilidade com o subdiretório do GitHub Pages
+const UFCG_LOGO = 'logo-ufcg.png'; 
+const CCBS_LOGO = 'logo-ccbs.png';
 
 function formatarDataExtenso(dataCriacao: string) {
   const [dataParte] = dataCriacao.split(',');
@@ -356,11 +355,10 @@ export default function App() {
     }
   };
 
-  // ETAPA EDUCATIVA: Função auxiliar para retornar a classe css de cor do Tailwind dependendo do local selecionado
   const obterCorLocal = (local: string) => {
     if (local === 'AUDITÓRIO') return 'bg-blue-600';
     if (local === 'SALA DE REUNIÃO') return 'bg-cyan-500';
-    if (local === 'SALA 01') return 'bg-emerald-600'; // Nova cor personalizada para a Sala 01
+    if (local === 'SALA 01') return 'bg-emerald-600';
     return 'bg-slate-600';
   };
 
@@ -549,7 +547,6 @@ export default function App() {
             
             <div className="grid grid-cols-7">{renderCalendar()}</div>
             
-            {/* ETAPA EDUCATIVA: Adicionada a legenda visual da SALA 01 no rodapé do calendário */}
             <div className="p-4 bg-slate-50 flex flex-wrap gap-6 justify-center border-t border-slate-100">
               <div className="flex items-center gap-2"><div className="w-3 h-3 bg-blue-600 rounded-sm"></div><span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Auditório</span></div>
               <div className="flex items-center gap-2"><div className="w-3 h-3 bg-cyan-500 rounded-sm"></div><span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Sala de Reunião</span></div>
@@ -719,7 +716,7 @@ export default function App() {
                   na condição de responsável pelo evento <strong>"{showReceipt.nomeEvento}"</strong>, a ser 
                   realizado no <strong>{showReceipt.auditorio}</strong> do Centro de Ciências Biológicas e da Saúde (CCBS/UFCG), 
                   no dia <strong>{showReceipt.data.split('-').reverse().join('/')}</strong>, das <strong>{showReceipt.horaInicio}</strong> às <strong>{showReceipt.horaFim} h</strong>, 
-                  assumo integral responsabilidade pela utilização do referido espaço durante o período autorizado.
+                  assumo integral responsabilidade pela utilização do referido espaço durante o período authorized.
                 </p>
 
                 <p className="font-bold pt-2">Declaro estar ciente e de acordo com as seguintes condições:</p>
