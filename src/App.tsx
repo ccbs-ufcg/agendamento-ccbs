@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import html2canvas from 'html2canvas';
+import jsPDF from 'jspdf';
 import { 
   Calendar as CalendarIcon, 
   Clock, 
@@ -262,10 +264,7 @@ export default function App() {
     if (!elemento) return;
     setGeneratingPDF(true);
     try {
-      // @ts-ignore
-      const canvas = await window.html2canvas(elemento, { scale: 2, backgroundColor: '#ffffff', useCORS: true });
-      // @ts-ignore
-      const { jsPDF } = window.jspdf;
+      const canvas = await html2canvas(elemento, { scale: 2, backgroundColor: '#ffffff', useCORS: true });
       const pdf = new jsPDF('p', 'mm', 'a4');
       const pageWidth = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
