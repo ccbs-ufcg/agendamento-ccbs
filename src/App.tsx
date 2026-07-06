@@ -58,9 +58,9 @@ const HORARIOS = [
 ];
 const MASTER_PASSWORD = 'adminCCBS2026';
 
-// LOGOS ATUALIZADAS (Links estáveis e diretos)
-const UFCG_LOGO = 'https://raw.githubusercontent.com/ccbs-ufcg/agendamento-ccbs/main/public/logo-ufcg.png'; 
-const CCBS_LOGO = 'https://raw.githubusercontent.com/ccbs-ufcg/agendamento-ccbs/main/public/logo-ccbs.png';
+// LOGOS: Caminhos relativos oficiais baseados na URL do seu GitHub Pages para carregar em qualquer navegador
+const UFCG_LOGO = './logo-ufcg.png'; 
+const CCBS_LOGO = './logo-ccbs.png';
 
 function formatarDataExtenso(dataCriacao: string) {
   const [dataParte] = dataCriacao.split(',');
@@ -93,7 +93,7 @@ export default function App() {
   const [reprintPassword, setReprintPassword] = useState('');
   const [loadingSecondCopy, setLoadingSecondCopy] = useState(false);
 
-  // REFERÊNCIA PARA CAPTURA DO PDF (ESSENCIAL!)
+  // REFERÊNCIA DO PDF
   const termoRef = useRef<HTMLDivElement>(null);
 
   const [formData, setFormData] = useState({
@@ -296,7 +296,7 @@ export default function App() {
       } else {
         showToast('Protocolo não encontrado.', 'error');
       }
-} catch (err) {
+    } catch (err) {
       console.error(err);
       showToast('Erro ao buscar dados.', 'error');
     } finally {
@@ -304,7 +304,7 @@ export default function App() {
     }
   };
 
-  // FUNÇÃO DO PDF TOTALMENTE IMUNE A ERROS OKLCH E TRAVAMENTOS
+  // FUNÇÃO ATUALIZADA: Força dimensões A4 e corrige comportamento responsivo móvel (Safari/Chrome Mobile)
   const handleDownloadPDF = async () => {
     const elemento = termoRef.current;
     if (!elemento) {
@@ -314,21 +314,30 @@ export default function App() {
     
     setGeneratingPDF(true);
     
+    // BACKUP DE ESTILOS: Guarda o tamanho original do elemento antes do print
+    const originalWidth = elemento.style.width;
+    const originalMaxWith = elemento.style.maxWidth;
+
     try {
-      // Pequeno tempo para sincronia do DOM do React
+      // Força o elemento a se comportar como um container desktop fixo de 800px de largura
+      elemento.style.width = '800px';
+      elemento.style.maxWidth = '800px';
+
+      // Aguarda o navegador aplicar o reflow do layout
       await new Promise((resolve) => setTimeout(resolve, 300));
 
       const canvas = await html2canvas(elemento, { 
         scale: 2, 
         backgroundColor: '#ffffff', 
         useCORS: true,
-        allowTaint: true,
-        ignoreElements: (el) => {
-          // Ignora elementos com classes problemáticas se houver necessidade
-          return false;
-        }
+        allowTaint: false,
+        logging: false
       });
       
+      // Restaura o layout responsivo original para o usuário não ver alteração na tela do celular
+      elemento.style.width = originalWidth;
+      elemento.style.maxWidth = originalMaxWith;
+
       const pdf = new jsPDF('p', 'mm', 'a4');
       const pageWidth = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
@@ -352,7 +361,10 @@ export default function App() {
       showToast('PDF gerado com sucesso!');
     } catch (err: any) {
       console.error("Erro na geração do PDF:", err);
-      showToast('Erro ao processar PDF. Tentando fallback...', 'error');
+      // Restaura os estilos em caso de falha catastrófica
+      elemento.style.width = originalWidth;
+      elemento.style.maxWidth = originalMaxWith;
+      showToast('Erro ao processar o arquivo PDF.', 'error');
     } finally {
       setGeneratingPDF(false);
     }
@@ -406,9 +418,8 @@ export default function App() {
       <header className="bg-blue-700 text-white shadow-xl sticky top-0 z-30 print:hidden">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <div className="bg-white p-1 rounded-xl">
-              {/* Fallback de cor para prevenir falha oklch caso herde estilo */}
-              <img src={UFCG_LOGO} alt="Logo UFCG" className="h-10 object-contain bg-white" crossOrigin="anonymous" />
+            <div className="bg-white p-1 rounded-xl flex items-center justify-center" style={{ width: '44px', height: '44px' }}>
+              <img src={UFCG_LOGO} alt="Logo UFCG" className="h-10 object-contain" />
             </div>
             <div>
               <h1 className="text-xl font-black tracking-tighter">CCBS / UFCG</h1>
@@ -499,7 +510,7 @@ export default function App() {
                 <div className="bg-blue-900/5 p-4 rounded-2xl border-2 border-blue-100 mt-4">
                   <div className="flex items-center gap-2 mb-2 text-blue-900">
                     <Lock className="w-3 h-3" />
-                    <span className="text-[10px] font-black uppercase tracking-widest">Segurança</span>
+                    <span className="text-[10px] font-black uppercase tracking-widest">Security</span>
                   </div>
                   <input type="password" name="senha" value={formData.senha} onChange={handleChange} placeholder="Senha p/ Cancelamento" className="w-full p-3 bg-white border border-blue-200 rounded-xl text-center font-bold tracking-widest text-blue-900 outline-none focus:border-blue-600" />
                 </div>
@@ -668,7 +679,7 @@ export default function App() {
         </div>
       )}
 
-      {/* TERMO DE RESPONSABILIDADE (MODIFICADO COM ESTILO ISOLADO ANTI-OKLCH) */}
+      {/* TERMO DE RESPONSABILIDADE */}
       {showReceipt && (
         <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[100] flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white rounded-none md:rounded-[2rem] w-full max-w-3xl shadow-2xl overflow-hidden my-auto">
@@ -680,14 +691,14 @@ export default function App() {
               </p>
             </div>
 
-            {/* ELEMENTO COM ESTILOS INLINE DE COR STANDARD PARA EVITAR OKLCH DO TAILWIND v4 */}
+            {/* AREA DO TERMO PREPARADA CONTRA OKLCH E TOTALMENTE ADAPTADA PARA SAFARI MOBILE */}
             <div 
               className="p-10 space-y-8" 
               ref={termoRef} 
-              style={{ backgroundColor: '#ffffff', color: '#000000' }}
+              style={{ backgroundColor: '#ffffff', color: '#000000', width: '100%' }}
             >
               <div className="flex justify-between items-center pb-4" style={{ borderBottom: '1px solid #e2e8f0' }}>
-                 <img src={UFCG_LOGO} alt="UFCG" className="h-14 w-14 object-contain bg-white" crossOrigin="anonymous" />
+                 <img src={UFCG_LOGO} alt="UFCG" className="h-14 w-14 object-contain bg-white" />
                  <div className="text-center flex-1 px-4">
                    <h2 className="text-[14px] font-bold uppercase tracking-tight text-black leading-tight" style={{ color: '#000000' }}>
                      UNIVERSIDADE FEDERAL DE CAMPINA GRANDE - UFCG
@@ -699,7 +710,7 @@ export default function App() {
                      TERMO DE RESPONSABILIDADE PARA UTILIZAÇÃO DE ESPAÇO
                    </p>
                  </div>
-                 <img src={CCBS_LOGO} alt="CCBS" className="w-[2cm] h-auto object-contain bg-white" crossOrigin="anonymous" />
+                 <img src={CCBS_LOGO} alt="CCBS" className="w-[2cm] h-auto object-contain bg-white" />
               </div>
 
               <div className="text-xs space-y-4 text-black leading-relaxed" style={{ color: '#000000' }}>
@@ -730,7 +741,7 @@ export default function App() {
                       <li>IV - Alterar instalações elétricas, de rede, sonorização ou quaisquer outros sistemas sem autorização prévia da Administração do CCBS.</li>
                     </ul>
                   </div>
-                  <p><strong>CLÁUSULA SÉTIMA - DAS RESPONSABILIDADES:</strong> O descumprimento das dispositions deste Termo poderá implicar a suspensão de futuras autorizações de uso, sem prejuízo da apuração de responsabilidades administrativas, civis e legais cabíveis, bem como da obrigação de ressarcimento ao erário em caso de dano ao patrimônio público.</p>
+                  <p><strong>CLÁUSULA SÉTIMA - DAS RESPONSABILIDADES:</strong> O descumprimento das disposições deste Termo poderá implicar a suspensão de futuras autorizações de uso, sem prejuízo da apuração de responsabilidades administrativas, civis e legais cabíveis, bem como da obrigação de ressarcimento ao erário em caso de dano ao patrimônio público.</p>
                 </div>
 
                 <p className="pt-4 text-center">Por estar de acordo com as condições acima estabelecidas, firmo o presente Termo de Responsabilidade.</p>
