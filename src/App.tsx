@@ -58,9 +58,9 @@ const HORARIOS = [
 ];
 const MASTER_PASSWORD = 'adminCCBS2026';
 
-// LOGOS CORRIGIDAS: URLs absolutas oficiais do seu domínio de publicação para garantir carregamento total
-const UFCG_LOGO = 'https://ccbs-ufcg.github.io/agendamento-ccbs/logo-ufcg.png'; 
-const CCBS_LOGO = 'https://ccbs-ufcg.github.io/agendamento-ccbs/logo-ccbs.png';
+// LOGOS CORRIGIDAS: Agora apontando direto para a raiz da pasta public local através do build do Vite
+const UFCG_LOGO = '/logo-ufcg.png'; 
+const CCBS_LOGO = '/logo-ccbs.png';
 
 function formatarDataExtenso(dataCriacao: string) {
   const [dataParte] = dataCriacao.split(',');
@@ -325,7 +325,7 @@ export default function App() {
       await new Promise((resolve) => setTimeout(resolve, 300));
 
       const canvas = await html2canvas(elemento, { 
-        scale: 1.5, // Reduzido de 2 para 1.5 para aliviar o processamento e tamanho do arquivo
+        scale: 1.5, 
         backgroundColor: '#ffffff', 
         useCORS: true,
         allowTaint: false,
@@ -414,7 +414,7 @@ export default function App() {
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <div className="bg-white p-1 rounded-xl flex items-center justify-center" style={{ width: '44px', height: '44px' }}>
-              <img src={UFCG_LOGO} alt="Logo UFCG" className="h-10 object-contain bg-white" />
+              <img src={UFCG_LOGO} alt="Logo UFCG" className="h-10 object-contain" />
             </div>
             <div>
               <h1 className="text-xl font-black tracking-tighter">CCBS / UFCG</h1>
@@ -722,7 +722,7 @@ export default function App() {
 
                 <div className="space-y-3" style={{ color: '#000000' }}>
                   <p><strong>CLÁUSULA PRIMEIRA - DA CONSERVAÇÃO DO PATRIMÔNIO:</strong> Comprometo-me a zelar pela conservação das instalações, mobiliários, equipamentos e demais bens patrimoniais existentes no {showReceipt.auditorio} do CCBS, responsabilizando-me por danos decorrentes de uso inadequado, negligência, imprudência ou imperícia dos participantes do evento sob minha responsabilidade.</p>
-                  <p><strong>CLÁUSULA SEGUNDA - DA UTILIZAÇÃO DO ESPAÇO:</strong> Comprometo-me a utilizar o espaço exclusivamente para a finalidade previamente informada e autorizada pela Direção do CCBS, observando as normas institucionais vigentes e as orientações da Administração do Centro.</p>
+                  <p><strong>CLÁUSULA SECOND - DA UTILIZAÇÃO DO ESPAÇO:</strong> Comprometo-me a utilizar o espaço exclusivamente para a finalidade previamente informada e autorizada pela Direção do CCBS, observando as normas institucionais vigentes e as orientações da Administração do Centro.</p>
                   <p><strong>CLÁUSULA TERCEIRA - DA ORGANIZAÇÃO E LIMPEZA:</strong> Ao término do evento, comprometo-me a entregar o espaço em condições adequadas de organização, conservação e limpeza, preservando a disposição original do mobiliário e dos equipamentos disponibilizados.</p>
                   <p><strong>CLÁUSULA QUARTA - DOS EQUIPAMENTOS E RECURSOS:</strong> Declaro ter recebido, em perfeito estado of funcionamento, os equipamentos eventualmente disponibilizados para o evento, responsabilizando-me por sua correta utilização e devolução nas mesmas condições iniciais. Ao término do evento comprometo-me a desligar as luzes e aparelhos de ar-condicionado e de informática.</p>
                   <p><strong>CLÁUSULA QUINTA - DA SEGURANÇA:</strong> Comprometo-me a respeitar a capacidade máxima do local, bem como a não realizar atividades que possam colocar em risco a integridade física dos participantes ou do patrimônio público.</p>
