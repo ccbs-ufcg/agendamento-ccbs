@@ -27,7 +27,7 @@ import {
   CreditCard,
   QrCode,
   Search,
-  Copy // ETAPA EDUCATIVA: Importamos o ícone de cópia para o botão do protocolo
+  Copy
 } from 'lucide-react';
 
 // Importações do Firebase
@@ -189,11 +189,23 @@ export default function App() {
         return;
       }
     }
+    // MUDANÇA DIDÁTICA: Se o usuário de alguma forma selecionar a sala indisponível no estado
+    if (name === 'auditorio' && value === 'SALA DE REUNIÃO') {
+      showToast('A Sala de Reunião está temporariamente indisponível!', 'error');
+      return;
+    }
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
   const handleBooking = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // MUDANÇA DIDÁTICA: Bloqueio lógico de segurança direto no envio do formulário
+    if (formData.auditorio === 'SALA DE REUNIÃO') {
+      showToast('A Sala de Reunião está temporariamente indisponível para novos agendamentos.', 'error');
+      return;
+    }
+
     if (!formData.data || !formData.nomeEvento || !formData.requisitante || !formData.cpf || !formData.email || !formData.telefone || !formData.senha) {
       showToast('Preencha todos os campos obrigatórios!', 'error');
       return;
@@ -363,7 +375,6 @@ export default function App() {
     return 'bg-slate-600';
   };
 
-  // ETAPA EDUCATIVA: Função auxiliar para lidar com a cópia rápida do texto para a área de transferência do sistema
   const copiarParaTransferencia = (texto: string) => {
     navigator.clipboard.writeText(texto);
     showToast('Código de protocolo copiado! 📋');
@@ -457,9 +468,19 @@ export default function App() {
             <form onSubmit={handleBooking} className="p-6 space-y-4">
               <div className="space-y-3">
                 <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Local & Data</label>
+                
+                {/* MUDANÇA DIDÁTICA: Customizamos a renderização do menu select para desativar a Sala de Reunião */}
                 <select name="auditorio" value={formData.auditorio} onChange={handleChange} className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold uppercase text-xs focus:border-blue-600 outline-none transition-all">
-                  {AUDITORIOS.map(a => <option key={a}>{a}</option>)}
+                  {AUDITORIOS.map(a => {
+                    const isIndisponivel = a === 'SALA DE REUNIÃO';
+                    return (
+                      <option key={a} value={a} disabled={isIndisponivel} className={isIndisponivel ? 'text-red-400 italic' : ''}>
+                        {isIndisponivel ? `${a} (INDISPONÍVEL)` : a}
+                      </option>
+                    );
+                  })}
                 </select>
+                
                 <input type="date" name="data" value={formData.data} onChange={handleChange} className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none focus:border-blue-600" />
                 
                 <div className="grid grid-cols-2 gap-3">
@@ -596,7 +617,6 @@ export default function App() {
                        <User className="w-3 h-3" /> {res.requisitante} <span className="opacity-50">({res.setor})</span>
                      </div>
                      
-                     {/* ETAPA EDUCATIVA: Injetamos aqui a linha do Protocolo com o botão de cópia rápida marcado em amarelo na imagem */}
                      <div className="flex items-center gap-2 text-[11px] font-bold text-slate-400 mb-3 bg-white/5 px-2.5 py-1.5 rounded-xl w-fit border border-white/5">
                        <span>Protocolo: <span className="text-blue-400 select-all font-mono uppercase tracking-wide">{res.id}</span></span>
                        <button 
@@ -629,7 +649,7 @@ export default function App() {
         </div>
       </main>
 
-      {/* RODAPÉ */}
+      {/* ROIDAPÉ */}
       <footer className="mt-auto border-t border-slate-200 bg-white print:hidden">
         <div className="max-w-7xl mx-auto px-4 py-6 flex flex-col md:flex-row items-center justify-between gap-4">
           <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">
@@ -752,7 +772,7 @@ export default function App() {
                       <li>IV - Alterar instalações elétricas, de rede, sonorização ou quaisquer outros sistemas sem autorização prévia da Administração do CCBS.</li>
                     </ul>
                   </div>
-                  <p><strong>CLÁUSULA SÉTIMA - DAS RESPONSABILIDADES:</strong> O descumprimento das disposições deste Termo poderá implicar a suspensão de futuras autorizações de uso, sem prejuízo da apuração de responsabilidades administrativas, civis e legais cabíveis, bem como da obrigação de ressarcimento ao erário em caso de dano ao patrimônio público.</p>
+                  <p><strong>CLÁUSULA SÉTIMA - DAS RESPONSABILIDADES:</strong> O descumprimento das disposições deste Termo poderá implicar a supra-citada suspensão de futuras autorizações de uso, sem prejuízo da apuração de responsabilidades administrativas, civis e legais cabíveis, bem como da obrigação de ressarcimento ao erário em caso de dano ao patrimônio público.</p>
                 </div>
 
                 <p className="pt-4 text-center">Por estar de acordo com as condições acima estabelecidas, firmo o presente Termo de Responsabilidade.</p>
