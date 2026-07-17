@@ -26,7 +26,8 @@ import {
   Github,
   CreditCard,
   QrCode,
-  Search
+  Search,
+  Copy // ETAPA EDUCATIVA: Importamos o ícone de cópia para o botão do protocolo
 } from 'lucide-react';
 
 // Importações do Firebase
@@ -362,6 +363,12 @@ export default function App() {
     return 'bg-slate-600';
   };
 
+  // ETAPA EDUCATIVA: Função auxiliar para lidar com a cópia rápida do texto para a área de transferência do sistema
+  const copiarParaTransferencia = (texto: string) => {
+    navigator.clipboard.writeText(texto);
+    showToast('Código de protocolo copiado! 📋');
+  };
+
   const renderCalendar = () => {
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
@@ -585,9 +592,22 @@ export default function App() {
                        </button>
                      </div>
                      <h5 className="text-lg font-black uppercase tracking-tight text-white mb-1">{res.nomeEvento}</h5>
-                     <div className="flex items-center gap-2 text-xs text-slate-300 mb-3">
+                     <div className="flex items-center gap-2 text-xs text-slate-300 mb-2">
                        <User className="w-3 h-3" /> {res.requisitante} <span className="opacity-50">({res.setor})</span>
                      </div>
+                     
+                     {/* ETAPA EDUCATIVA: Injetamos aqui a linha do Protocolo com o botão de cópia rápida marcado em amarelo na imagem */}
+                     <div className="flex items-center gap-2 text-[11px] font-bold text-slate-400 mb-3 bg-white/5 px-2.5 py-1.5 rounded-xl w-fit border border-white/5">
+                       <span>Protocolo: <span className="text-blue-400 select-all font-mono uppercase tracking-wide">{res.id}</span></span>
+                       <button 
+                         onClick={() => copiarParaTransferencia(res.id)} 
+                         className="p-1 hover:bg-white/10 text-slate-300 hover:text-white rounded transition-all active:scale-90"
+                         title="Copiar Protocolo"
+                       >
+                         <Copy className="w-3 h-3" />
+                       </button>
+                     </div>
+
                      <div className="pt-3 border-t border-white/10">
                        {isAdminMode ? (
                          <div className="space-y-1">
@@ -720,7 +740,7 @@ export default function App() {
                 <div className="space-y-3" style={{ color: '#000000' }}>
                   <p><strong>CLÁUSULA PRIMEIRA - DA CONSERVAÇÃO DO PATRIMÔNIO:</strong> Comprometo-me a zelar pela conservação das instalações, mobiliários, equipamentos e demais bens patrimoniais existentes no {showReceipt.auditorio} do CCBS, responsabilizando-me por danos decorrentes de uso inadequado, negligência, imprudência ou imperícia dos participantes do evento sob minha responsabilidade.</p>
                   <p><strong>CLÁUSULA SEGUNDA - DA UTILIZAÇÃO DO ESPAÇO:</strong> Comprometo-me a utilizar o espaço exclusivamente para a finalidade previamente informada e autorizada pela Direção do CCBS, observando as normas institucionais vigentes e as orientações da Administração do Centro.</p>
-                  <p><strong>CLÁUSULA TERCEIRA - DA ORGANIZAÇÃO E LIMPEZA:</strong> Ao término do evento, comprometo-me a entregar o espaço em condições adequadas de organization, conservação e limpeza, preservando a disposição original do mobiliário e dos equipamentos disponibilizados.</p>
+                  <p><strong>CLÁUSULA TERCEIRA - DA ORGANIZAÇÃO E LIMPEZA:</strong> Ao término do evento, comprometo-me a entregar o espaço em condições adequadas de organização, conservação e limpeza, preservando a disposição original do mobiliário e dos equipamentos disponibilizados.</p>
                   <p><strong>CLÁUSULA QUARTA - DOS EQUIPAMENTOS E RECURSOS:</strong> Declaro ter recebido, em perfeito estado of funcionamento, os equipamentos eventualmente disponibilizados para o evento, responsabilizando-me por sua correta utilização e devolução nas mesmas condições iniciais. Ao término do evento comprometo-me a desligar as luzes e aparelhos de ar-condicionado e de informática.</p>
                   <p><strong>CLÁUSULA QUINTA - DA SEGURANÇA:</strong> Comprometo-me a respeitar a capacidade máxima do local, bem como a não realizar atividades que possam colocar em risco a integridade física dos participantes ou do patrimônio público.</p>
                   <div>
