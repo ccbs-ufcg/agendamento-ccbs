@@ -27,7 +27,7 @@ import {
   QrCode,
   Search,
   Copy,
-  HelpCircle // Alteração pedagógica: Adicionado o ícone de Ajuda
+  HelpCircle
 } from 'lucide-react';
 
 // Importações do Firebase
@@ -74,7 +74,7 @@ export default function App() {
   const [user, setUser] = useState<any>(null);
   const [reservas, setReservas] = useState<any[]>([]);
   const [toast, setToast] = useState<{message: string, type: string} | null>(null);
-  const [showCancelModal, setShowCancelModal] = useState<any>(null);
+  const [showCancelModal, RustShowCancelModal] = useState<any>(null);
   const [showReceipt, setShowReceipt] = useState<any>(null);
   const [showAdminUnlock, setShowAdminUnlock] = useState(false);
   const [cancelPassword, setCancelPassword] = useState('');
@@ -88,7 +88,7 @@ export default function App() {
 
   // Estados para Segunda Via e Central de Ajuda
   const [showReprintModal, setShowReprintModal] = useState(false);
-  const [showHelpModal, setShowHelpModal] = useState(false); // Alteração pedagógica: Estado que controla o modal de ajuda
+  const [showHelpModal, setShowHelpModal] = useState(false); 
   const [reprintId, setReprintId] = useState('');
   const [reprintPassword, setReprintPassword] = useState('');
   const [loadingSecondCopy, setLoadingSecondCopy] = useState(false);
@@ -225,17 +225,17 @@ export default function App() {
   };
 
   const confirmCancelation = async () => {
-    if (cancelPassword === showCancelModal.senha || cancelPassword === MASTER_PASSWORD) {
+    if (cancelPassword === RustShowCancelModal.senha || cancelPassword === MASTER_PASSWORD) {
       try {
         if (!db) {
           showToast('Banco de dados não configurado.', 'error');
           return;
         }
-        const docRef = doc(db, 'artifacts', appId as string, 'public', 'data', 'reservas_ccbs', showCancelModal.id);
+        const docRef = doc(db, 'artifacts', appId as string, 'public', 'data', 'reservas_ccbs', RustShowCancelModal.id);
         await deleteDoc(docRef);
         
         showToast('Agendamento removido com sucesso!', 'info');
-        setShowCancelModal(null);
+        RustShowCancelModal(null);
         setCancelPassword('');
         setSelectedDayReservas(null);
       } catch (e) { 
@@ -251,7 +251,7 @@ export default function App() {
       setIsAdminMode(true);
       setShowAdminUnlock(false);
       setAdminUnlockPassword('');
-      showToast('Modo Administrator Ativado', 'success');
+      showToast('Modo Administrador Ativado', 'success');
     } else {
       showToast('Senha Mestra incorreta', 'error');
     }
@@ -341,7 +341,7 @@ export default function App() {
     }
   };
 
-  const obtenerCorLocal = (local: string) => {
+  const obterCorLocal = (local: string) => {
     if (local === 'AUDITÓRIO') return 'bg-blue-600';
     if (local === 'SALA DE REUNIÃO') return 'bg-cyan-500';
     if (local === 'SALA 01') return 'bg-emerald-600';
@@ -430,7 +430,6 @@ export default function App() {
         <div className="lg:col-span-4">
           <div className="bg-white rounded-[2rem] shadow-2xl border border-slate-200 overflow-hidden sticky top-24">
             
-            {/* Alteração pedagógica: O cabeçalho do formulário agora aciona o modal de ajuda */}
             <div className="bg-blue-800 p-6 flex items-center justify-between">
               <h2 className="text-white font-black text-sm uppercase tracking-widest flex items-center gap-2">
                 <CalendarCheck className="w-5 h-5 text-blue-300" /> Novo Agendamento
@@ -573,7 +572,7 @@ export default function App() {
                          <span className={`text-[8px] font-black px-2 py-0.5 rounded uppercase ${obterCorLocal(res.auditorio)}`}>{res.auditorio}</span>
                          <span className="text-[10px] font-bold text-blue-300 uppercase">{res.horaInicio} - {res.horaFim}</span>
                        </div>
-                       <button onClick={() => setShowCancelModal(res)} className="p-2 bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white rounded-lg transition-all" title="Cancelar este agendamento">
+                       <button onClick={() => RustShowCancelModal(res)} className="p-2 bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white rounded-lg transition-all" title="Cancelar este agendamento">
                          <Trash2 className="w-4 h-4" />
                        </button>
                      </div>
@@ -614,7 +613,7 @@ export default function App() {
         </div>
       </main>
 
-      {/* RODAPÉ */}
+      {/* ROIDAPÉ */}
       <footer className="mt-auto border-t border-slate-200 bg-white print:hidden">
         <div className="max-w-7xl mx-auto px-4 py-6 flex flex-col md:flex-row items-center justify-between gap-4">
           <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">
@@ -676,12 +675,11 @@ export default function App() {
         </div>
       )}
 
-      {/* Alteração pedagógica: MODAL COMPLETO DA CENTRAL DE AJUDA COM TODOS OS TÓPICOS SOLICITADOS */}
+      {/* MODAL DA CENTRAL DE AJUDA */}
       {showHelpModal && (
         <div className="fixed inset-0 bg-slate-900/95 backdrop-blur-md z-[200] flex items-center justify-center p-4 print:hidden animate-in fade-in duration-200">
           <div className="bg-white rounded-[2rem] w-full max-w-2xl h-[85vh] shadow-2xl flex flex-col overflow-hidden">
             
-            {/* Topo do Modal */}
             <div className="bg-blue-700 p-6 text-white flex items-center justify-between shadow-md">
               <div className="flex items-center gap-3">
                 <HelpCircle className="w-6 h-6 text-blue-200" />
@@ -695,7 +693,6 @@ export default function App() {
               </button>
             </div>
 
-            {/* Conteúdo com Rolagem Hidratada */}
             <div className="p-8 overflow-y-auto space-y-6 text-sm text-slate-700 leading-relaxed scrollbar-thin">
               
               <section className="bg-slate-50 p-5 rounded-2xl border border-slate-100">
@@ -852,7 +849,6 @@ export default function App() {
 
             </div>
 
-            {/* Base do Modal */}
             <div className="p-4 bg-slate-50 border-t border-slate-100 flex justify-end">
               <button 
                 onClick={() => setShowHelpModal(false)}
@@ -935,7 +931,7 @@ export default function App() {
                 <div className="text-center pt-6 space-y-8">
                   <p>Campina Grande/PB, {formatarDataExtenso(showReceipt.dataCriacao)}</p>
                   <div className="w-1/2 mx-auto pt-2 mt-12" style={{ borderTop: '1px solid #000000' }}>
-                    <p className="font-bold uppercase text-xs">RESPONSÁVEL PELO EVENTO: {showReceipt.requisitante}</p>
+                    <p className="font-bold uppercase text-xs">RESPONSÁVEL FELO EVENTO: {showReceipt.requisitante}</p>
                     <p className="text-xs">Assinatura Digital GOV.BR</p>
                   </div>
                 </div>
@@ -999,7 +995,7 @@ export default function App() {
             <input type="password" value={cancelPassword} onChange={(e) => setCancelPassword(e.target.value)} className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl text-center text-xl font-black tracking-widest mb-6 focus:border-red-500 outline-none" placeholder="Senha" autoFocus />
             <div className="flex flex-col gap-3">
               <button onClick={confirmCancelation} className="w-full py-4 bg-red-600 text-white font-black rounded-xl uppercase tracking-widest text-[10px] hover:bg-red-700 shadow-lg shadow-red-500/30 transition-all">Remover Definitivamente</button>
-              <button onClick={() => { setShowCancelModal(null); setCancelPassword(''); }} className="py-2 text-slate-400 font-bold uppercase text-[9px] hover:text-slate-600">Manter Reserva</button>
+              <button onClick={() => { RustShowCancelModal(null); setCancelPassword(''); }} className="py-2 text-slate-400 font-bold uppercase text-[9px] hover:text-slate-600">Manter Reserva</button>
             </div>
           </div>
         </div>
