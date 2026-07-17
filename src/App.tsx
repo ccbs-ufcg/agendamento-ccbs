@@ -11,7 +11,6 @@ import {
   CalendarCheck,
   AlertCircle,
   X,
-  Sparkles,
   Loader2,
   ChevronLeft,
   ChevronRight,
@@ -27,7 +26,8 @@ import {
   CreditCard,
   QrCode,
   Search,
-  Copy
+  Copy,
+  HelpCircle // Alteração pedagógica: Adicionado o ícone de Ajuda
 } from 'lucide-react';
 
 // Importações do Firebase
@@ -59,7 +59,7 @@ const HORARIOS = [
 ];
 const MASTER_PASSWORD = 'adminCCBS2026';
 
-// LOGOS AJUSTADAS: Sem a barra inicial para total compatibilidade com o subdiretório do GitHub Pages
+// LOGOS AJUSTADAS
 const UFCG_LOGO = 'logo-ufcg.png'; 
 const CCBS_LOGO = 'logo-ccbs.png';
 
@@ -80,16 +80,15 @@ export default function App() {
   const [cancelPassword, setCancelPassword] = useState('');
   const [adminUnlockPassword, setAdminUnlockPassword] = useState('');
   const [loading, setLoading] = useState(true);
-  const [loadingAI, setLoadingAI] = useState(false);
   const [generatingPDF, setGeneratingPDF] = useState(false);
-  const [aiSuggestions, setAiSuggestions] = useState<any>(null);
   const [isAdminMode, setIsAdminMode] = useState(false);
   
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDayReservas, setSelectedDayReservas] = useState<{date: string, items: any[]} | null>(null);
 
-  // Estados para Segunda Via
+  // Estados para Segunda Via e Central de Ajuda
   const [showReprintModal, setShowReprintModal] = useState(false);
+  const [showHelpModal, setShowHelpModal] = useState(false); // Alteração pedagógica: Estado que controla o modal de ajuda
   const [reprintId, setReprintId] = useState('');
   const [reprintPassword, setReprintPassword] = useState('');
   const [loadingSecondCopy, setLoadingSecondCopy] = useState(false);
@@ -157,29 +156,6 @@ export default function App() {
     setTimeout(() => setToast(null), 3000);
   };
 
-  const generateAISuggestions = async () => {
-    if (!formData.requisitante || !formData.setor) {
-      showToast('Preencha o requisitante e o setor para obter sugestões ✨', 'error');
-      return;
-    }
-    setLoadingAI(true);
-    try {
-      const response = await fetch('/api/suggestions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ requisitante: formData.requisitante, setor: formData.setor })
-      });
-      if (!response.ok) throw new Error('Failed to fetch suggestions');
-      const data = await response.json();
-      setAiSuggestions(data);
-    } catch (error) {
-      console.error(error);
-      showToast('Erro ao conectar com a IA.', 'error');
-    } finally {
-      setLoadingAI(false);
-    }
-  };
-
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     if (name === 'data') {
@@ -189,7 +165,6 @@ export default function App() {
         return;
       }
     }
-    // MUDANÇA DIDÁTICA: Se o usuário de alguma forma selecionar a sala indisponível no estado
     if (name === 'auditorio' && value === 'SALA DE REUNIÃO') {
       showToast('A Sala de Reunião está temporariamente indisponível!', 'error');
       return;
@@ -200,7 +175,6 @@ export default function App() {
   const handleBooking = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    // MUDANÇA DIDÁTICA: Bloqueio lógico de segurança direto no envio do formulário
     if (formData.auditorio === 'SALA DE REUNIÃO') {
       showToast('A Sala de Reunião está temporariamente indisponível para novos agendamentos.', 'error');
       return;
@@ -244,7 +218,6 @@ export default function App() {
         auditorio: AUDITORIOS[0], data: '', horaInicio: '07:00', horaFim: '08:00', 
         nomeEvento: '', requisitante: '', cpf: '', email: '', telefone: '', setor: '', senha: '' 
       });
-      setAiSuggestions(null);
     } catch (e) {
       console.error(e);
       showToast('Erro ao comunicar com o servidor.', 'error');
@@ -278,7 +251,7 @@ export default function App() {
       setIsAdminMode(true);
       setShowAdminUnlock(false);
       setAdminUnlockPassword('');
-      showToast('Modo Administrador Ativado', 'success');
+      showToast('Modo Administrator Ativado', 'success');
     } else {
       showToast('Senha Mestra incorreta', 'error');
     }
@@ -368,7 +341,7 @@ export default function App() {
     }
   };
 
-  const obterCorLocal = (local: string) => {
+  const obtenerCorLocal = (local: string) => {
     if (local === 'AUDITÓRIO') return 'bg-blue-600';
     if (local === 'SALA DE REUNIÃO') return 'bg-cyan-500';
     if (local === 'SALA 01') return 'bg-emerald-600';
@@ -456,12 +429,19 @@ export default function App() {
         {/* FORMULÁRIO DE AGENDAMENTO */}
         <div className="lg:col-span-4">
           <div className="bg-white rounded-[2rem] shadow-2xl border border-slate-200 overflow-hidden sticky top-24">
+            
+            {/* Alteração pedagógica: O cabeçalho do formulário agora aciona o modal de ajuda */}
             <div className="bg-blue-800 p-6 flex items-center justify-between">
               <h2 className="text-white font-black text-sm uppercase tracking-widest flex items-center gap-2">
                 <CalendarCheck className="w-5 h-5 text-blue-300" /> Novo Agendamento
               </h2>
-              <button onClick={generateAISuggestions} disabled={loadingAI} className="bg-white/10 p-2 rounded-lg text-white hover:bg-white/20 transition-all" title="Pedir Sugestões à IA">
-                {loadingAI ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4 text-yellow-300" />}
+              <button 
+                type="button"
+                onClick={() => setShowHelpModal(true)} 
+                className="bg-white/10 p-2 rounded-lg text-white hover:bg-white/20 transition-all cursor-pointer" 
+                title="Abrir Central de Ajuda"
+              >
+                <HelpCircle className="w-5 h-5 text-white" />
               </button>
             </div>
             
@@ -469,7 +449,6 @@ export default function App() {
               <div className="space-y-3">
                 <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Local & Data</label>
                 
-                {/* MUDANÇA DIDÁTICA: Customizamos a renderização do menu select para desativar a Sala de Reunião */}
                 <select name="auditorio" value={formData.auditorio} onChange={handleChange} className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold uppercase text-xs focus:border-blue-600 outline-none transition-all">
                   {AUDITORIOS.map(a => {
                     const isIndisponivel = a === 'SALA DE REUNIÃO';
@@ -511,20 +490,6 @@ export default function App() {
                 
                 <input type="email" name="email" value={formData.email} onChange={handleChange} placeholder="E-mail" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none focus:border-blue-600 text-sm" />
                 <input type="text" name="setor" value={formData.setor} onChange={handleChange} placeholder="Setor / Departamento" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none focus:border-blue-600" />
-                
-                {aiSuggestions && (
-                  <div className="bg-yellow-50 border border-yellow-200 p-4 rounded-2xl animate-in zoom-in duration-300 mt-2">
-                    <div className="flex items-center gap-2 text-yellow-700 font-black text-[10px] uppercase mb-1">
-                      <Sparkles className="w-3 h-3" /> Sugestão da Inteligência Artificial
-                    </div>
-                    <p className="text-xs font-bold text-slate-800 mb-2">"{aiSuggestions.titulo}"</p>
-                    <div className="flex flex-wrap gap-1">
-                      {aiSuggestions.sugestoes.map((s: string, i: number) => (
-                        <span key={i} className="text-[9px] bg-white border border-yellow-200 px-2 py-0.5 rounded-full text-yellow-800">{s}</span>
-                      ))}
-                    </div>
-                  </div>
-                )}
 
                 <div className="bg-blue-900/5 p-4 rounded-2xl border-2 border-blue-100 mt-4">
                   <div className="flex items-center gap-2 mb-2 text-blue-900">
@@ -649,7 +614,7 @@ export default function App() {
         </div>
       </main>
 
-      {/* ROIDAPÉ */}
+      {/* RODAPÉ */}
       <footer className="mt-auto border-t border-slate-200 bg-white print:hidden">
         <div className="max-w-7xl mx-auto px-4 py-6 flex flex-col md:flex-row items-center justify-between gap-4">
           <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">
@@ -707,6 +672,196 @@ export default function App() {
                 Voltar
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Alteração pedagógica: MODAL COMPLETO DA CENTRAL DE AJUDA COM TODOS OS TÓPICOS SOLICITADOS */}
+      {showHelpModal && (
+        <div className="fixed inset-0 bg-slate-900/95 backdrop-blur-md z-[200] flex items-center justify-center p-4 print:hidden animate-in fade-in duration-200">
+          <div className="bg-white rounded-[2rem] w-full max-w-2xl h-[85vh] shadow-2xl flex flex-col overflow-hidden">
+            
+            {/* Topo do Modal */}
+            <div className="bg-blue-700 p-6 text-white flex items-center justify-between shadow-md">
+              <div className="flex items-center gap-3">
+                <HelpCircle className="w-6 h-6 text-blue-200" />
+                <h3 className="text-xl font-black uppercase tracking-tight">Central de Ajuda</h3>
+              </div>
+              <button 
+                onClick={() => setShowHelpModal(false)} 
+                className="p-2 hover:bg-white/10 rounded-xl transition-all cursor-pointer"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            {/* Conteúdo com Rolagem Hidratada */}
+            <div className="p-8 overflow-y-auto space-y-6 text-sm text-slate-700 leading-relaxed scrollbar-thin">
+              
+              <section className="bg-slate-50 p-5 rounded-2xl border border-slate-100">
+                <h4 className="font-black text-slate-900 uppercase text-xs tracking-wider mb-2 text-blue-700">O que é o Sistema de Agendamento?</h4>
+                <p>O Sistema de Agendamento do CCBS/UFCG permite consultar a disponibilidade dos espaços físicos e solicitar reservas de forma rápida, segura e organizada.</p>
+              </section>
+
+              <section>
+                <h4 className="font-black text-slate-900 uppercase text-xs tracking-wider mb-2 text-blue-700">O que posso fazer no sistema?</h4>
+                <p className="mb-2">No sistema você pode:</p>
+                <ul className="list-disc pl-5 space-y-1 font-medium">
+                  <li>Consultar a disponibilidade dos espaços em tempo real;</li>
+                  <li>Solicitar reservas de salas e auditórios;</li>
+                  <li>Cancelar reservas utilizando sua senha de acesso;</li>
+                  <li>Gerar automaticamente o Termo de Responsabilidade em PDF;</li>
+                  <li>Emitir uma segunda via do Termo de Responsabilidade.</li>
+                </ul>
+              </section>
+
+              <hr className="border-slate-100" />
+
+              <section>
+                <h4 className="font-black text-slate-900 uppercase text-xs tracking-wider mb-3 text-blue-700">Quem pode utilizar o sistema?</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100/50">
+                    <span className="font-black text-blue-800 text-xs block mb-1 uppercase">Usuários internos</span>
+                    <p className="text-xs text-slate-600">Docentes, técnicos administrativos e estudantes vinculados ao CCBS/UFCG.</p>
+                  </div>
+                  <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
+                    <span className="font-black text-slate-800 text-xs block mb-1 uppercase">Usuários externos</span>
+                    <p className="text-xs text-slate-600">Servidores e estudantes de outros Centros da UFCG, bem como instituições externas.</p>
+                  </div>
+                </div>
+              </section>
+
+              <hr className="border-slate-100" />
+
+              <section className="space-y-4">
+                <h4 className="font-black text-slate-900 uppercase text-xs tracking-wider text-blue-700">Como solicitar uma reserva?</h4>
+                
+                <div className="border-l-4 border-blue-600 pl-4">
+                  <h5 className="font-black text-slate-900 uppercase text-[11px] mb-1">Usuários internos</h5>
+                  <p className="mb-1">As solicitações de reserva devem ser realizadas exclusivamente pelo Sistema de Agendamento.</p>
+                  <p className="text-xs text-slate-500 font-bold bg-slate-100 p-2 rounded-lg mt-1">Após o envio da solicitação, aguarde a confirmação da Secretaria da Central de Laboratórios do CCBS. A reserva somente será considerada efetivada após essa confirmação.</p>
+                </div>
+
+                <div className="border-l-4 border-slate-400 pl-4 space-y-3">
+                  <h5 className="font-black text-slate-900 uppercase text-[11px]">Usuários externos</h5>
+                  <p>Para solicitar uma reserva, siga as etapas abaixo.</p>
+                  
+                  <div className="space-y-2 text-xs">
+                    <div>
+                      <span className="font-black text-slate-800 block">1. Solicitação</span>
+                      <ul className="list-disc pl-4 space-y-0.5 text-slate-600">
+                        <li>Baixe o Anexo II – Ofício de Solicitação disponível no portal do CCBS;</li>
+                        <li>Preencha o documento com as informações da atividade;</li>
+                        <li>Encaminhe o ofício para <span className="font-bold text-blue-600">secretaria.ccbs@ufcg.edu.br</span>.</li>
+                      </ul>
+                    </div>
+                    <div>
+                      <span className="font-black text-slate-800 block">2. Análise</span>
+                      <p className="text-slate-600">A solicitação será analisada pela Direção do Centro. Caso o pedido seja deferido, o solicitante receberá as orientações para conclusão da reserva.</p>
+                    </div>
+                    <div>
+                      <span className="font-black text-slate-800 block">3. Confirmação da reserva</span>
+                      <p className="mb-1 text-slate-600">Após a aprovação da solicitação:</p>
+                      <ul className="list-disc pl-4 space-y-0.5 text-slate-600">
+                        <li>Gere o Termo de Responsabilidade em PDF no Sistema de Agendamento;</li>
+                        <li>Assine eletronicamente o documento por meio da plataforma GOV.BR;</li>
+                        <li>Envie o Termo de Responsabilidade assinado para <span className="font-bold text-blue-600">reservaccbs@gmail.com</span>.</li>
+                      </ul>
+                      <p className="font-bold text-red-600 mt-1">Importante: o envio do Termo de Responsabilidade devidamente assinado é obrigatório para a efetivação da reserva.</p>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <hr className="border-slate-100" />
+
+              <section className="bg-blue-50/40 p-5 rounded-2xl border border-blue-100/60">
+                <h4 className="font-black text-slate-900 uppercase text-xs tracking-wider mb-2 text-blue-800">Como assinar o Termo de Responsabilidade no GOV.BR?</h4>
+                <p className="mb-3 text-xs">Após gerar o Termo de Responsabilidade em PDF, siga as etapas abaixo para realizar a assinatura eletrônica.</p>
+                
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                  <div className="bg-white p-3 rounded-xl shadow-sm border border-slate-100">
+                    <span className="font-black text-blue-600 block mb-0.5">Passo 1</span>
+                    <p>Acesse o Assinador GOV.BR pelo endereço: <a href="https://assinador.iti.br" target="_blank" rel="noreferrer" className="text-blue-600 underline font-bold">assinador.iti.br</a></p>
+                  </div>
+                  <div className="bg-white p-3 rounded-xl shadow-sm border border-slate-100">
+                    <span className="font-black text-blue-600 block mb-0.5">Passo 2</span>
+                    <p>Faça login utilizando sua conta GOV.BR.</p>
+                  </div>
+                  <div className="bg-white p-3 rounded-xl shadow-sm border border-slate-100">
+                    <span className="font-black text-blue-600 block mb-0.5">Passo 3</span>
+                    <p>Clique em <em>Escolher arquivo</em> e selecione o Termo em formato PDF.</p>
+                  </div>
+                  <div className="bg-white p-3 rounded-xl shadow-sm border border-slate-100">
+                    <span className="font-black text-blue-600 block mb-0.5">Passo 4</span>
+                    <p>Clique em <strong>Assinar</strong>. Se solicitado, escolha o local da assinatura.</p>
+                  </div>
+                  <div className="bg-white p-3 rounded-xl shadow-sm border border-slate-100">
+                    <span className="font-black text-blue-600 block mb-0.5">Passo 5 & 6</span>
+                    <p>Confirme a assinatura eletrônica e faça o download do documento assinado.</p>
+                  </div>
+                  <div className="bg-white p-3 rounded-xl shadow-sm border border-slate-100">
+                    <span className="font-black text-blue-600 block mb-0.5">Passo 7</span>
+                    <p>Envie o arquivo assinado para <span className="font-bold">reservaccbs@gmail.com</span>.</p>
+                  </div>
+                </div>
+                <p className="text-[11px] font-bold text-slate-500 mt-3 italic">** Conta GOV.BR ativa e envio do documento são obrigatórios para validação.</p>
+              </section>
+
+              <hr className="border-slate-100" />
+
+              <section>
+                <h4 className="font-black text-slate-900 uppercase text-xs tracking-wider mb-2 text-blue-700">Como cancelar uma reserva?</h4>
+                <p className="mb-1">O cancelamento pode ser realizado diretamente pelo Sistema de Agendamento, utilizando a senha cadastrada no momento da solicitação.</p>
+                <p className="bg-amber-50 text-amber-900 p-2.5 rounded-xl text-xs font-bold border border-amber-200">Prazo: o cancelamento deve ser solicitado com antecedência mínima de 48 (quarenta e oito) horas da data do evento.</p>
+              </section>
+
+              <hr className="border-slate-100" />
+
+              <section className="bg-red-50/50 p-5 rounded-2xl border border-red-100">
+                <h4 className="font-black text-red-900 uppercase text-xs tracking-wider mb-2">Quando minha reserva é confirmada?</h4>
+                <p className="mb-2">A solicitação de reserva não gera confirmação automática. A reserva somente será considerada efetivada após:</p>
+                <ol className="list-decimal pl-5 space-y-1 mb-2 font-medium text-slate-800">
+                  <li>Confirmação formal da Secretaria da Central de Laboratórios do CCBS; e</li>
+                  <li>Para usuários externos, recebimento do Termo de Responsabilidade devidamente assinado.</li>
+                </ol>
+                <p className="text-xs font-bold text-red-700">Até esse momento, o espaço permanece apenas como solicitado, não havendo garantia de sua utilização.</p>
+              </section>
+
+              <hr className="border-slate-100" />
+
+              <section>
+                <h4 className="font-black text-slate-900 uppercase text-xs tracking-wider mb-2 text-blue-700">Como gerar o Termo de Responsabilidade?</h4>
+                <p className="mb-2">Após realizar a solicitação da reserva no Sistema de Agendamento, acesse a opção "Termo de Responsabilidade" disponível na consulta da sua solicitação.</p>
+                <ul className="list-disc pl-5 space-y-0.5 text-xs text-slate-600">
+                  <li>Gerar automaticamente o Termo de Responsabilidade em PDF;</li>
+                  <li>Emitir uma segunda via do documento sempre que necessário.</li>
+                </ul>
+              </section>
+
+              <hr className="border-slate-100" />
+
+              <section className="bg-slate-900 text-slate-300 p-6 rounded-2xl space-y-3">
+                <h4 className="font-black text-white uppercase text-xs tracking-wider border-b border-white/10 pb-2">Canais de Atendimento</h4>
+                <div className="space-y-2 text-xs">
+                  <p><strong className="text-white block uppercase text-[10px]">E-mail para confirmação de reservas:</strong> <span className="text-blue-400">reservaccbs@gmail.com</span></p>
+                  <p><strong className="text-white block uppercase text-[10px]">Secretaria do CCBS (usuários externos):</strong> <span className="text-blue-400">secretaria.ccbs@ufcg.edu.br</span> <br /><span className="text-slate-400">Responsável pelo recebimento dos Ofícios de Solicitação e pelo encaminhamento do processo de análise.</span></p>
+                  <p><strong className="text-white block uppercase text-[10px]">Sugestões e suporte técnico:</strong> Em caso de dúvidas ou problemas no sistema, contate: <span className="text-blue-400">renato.freitas@tecnico.ufcg.edu.br</span></p>
+                </div>
+              </section>
+
+            </div>
+
+            {/* Base do Modal */}
+            <div className="p-4 bg-slate-50 border-t border-slate-100 flex justify-end">
+              <button 
+                onClick={() => setShowHelpModal(false)}
+                className="px-6 py-2.5 bg-blue-600 text-white font-black rounded-xl text-xs uppercase tracking-widest hover:bg-blue-700 shadow-md shadow-blue-500/10 transition-all cursor-pointer"
+              >
+                Entendido
+              </button>
+            </div>
+
           </div>
         </div>
       )}
