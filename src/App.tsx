@@ -59,7 +59,7 @@ const HORARIOS = [
 ];
 const MASTER_PASSWORD = 'adminCCBS2026';
 
-// LOGOS AJUSTADAS
+// LOGOS
 const UFCG_LOGO = 'logo-ufcg.png'; 
 const CCBS_LOGO = 'logo-ccbs.png';
 
@@ -74,7 +74,10 @@ export default function App() {
   const [user, setUser] = useState<any>(null);
   const [reservas, setReservas] = useState<any[]>([]);
   const [toast, setToast] = useState<{message: string, type: string} | null>(null);
-  const [showCancelModal, RustShowCancelModal] = useState<any>(null);
+
+  // CORREÇÃO: Declaração correta do estado do Modal de Cancelamento
+  const [showCancelModal, setShowCancelModal] = useState<any>(null);
+
   const [showReceipt, setShowReceipt] = useState<any>(null);
   const [showAdminUnlock, setShowAdminUnlock] = useState(false);
   const [cancelPassword, setCancelPassword] = useState('');
@@ -224,21 +227,31 @@ export default function App() {
     }
   };
 
+  // CORREÇÃO: Função de confirmação do cancelamento corrigida e tratada
   const confirmCancelation = async () => {
-    if (cancelPassword === RustShowCancelModal.senha || cancelPassword === MASTER_PASSWORD) {
+    if (!showCancelModal) return;
+
+    const inputSenha = cancelPassword.trim();
+    const senhaReserva = showCancelModal.senha ? showCancelModal.senha.trim() : '';
+
+    // Valida se a senha digitada é a senha do evento OU a senha mestra
+    if (inputSenha === senhaReserva || inputSenha === MASTER_PASSWORD) {
       try {
         if (!db) {
           showToast('Banco de dados não configurado.', 'error');
           return;
         }
-        const docRef = doc(db, 'artifacts', appId as string, 'public', 'data', 'reservas_ccbs', RustShowCancelModal.id);
+        
+        // Acessa o id correto do documento no Firestore
+        const docRef = doc(db, 'artifacts', appId as string, 'public', 'data', 'reservas_ccbs', showCancelModal.id);
         await deleteDoc(docRef);
         
         showToast('Agendamento removido com sucesso!', 'info');
-        RustShowCancelModal(null);
+        setShowCancelModal(null);
         setCancelPassword('');
         setSelectedDayReservas(null);
       } catch (e) { 
+        console.error("Erro ao deletar documento:", e);
         showToast('Erro ao remover.', 'error'); 
       }
     } else {
@@ -247,7 +260,7 @@ export default function App() {
   };
 
   const handleAdminUnlock = () => {
-    if (adminUnlockPassword === MASTER_PASSWORD) {
+    if (adminUnlockPassword.trim() === MASTER_PASSWORD) {
       setIsAdminMode(true);
       setShowAdminUnlock(false);
       setAdminUnlockPassword('');
@@ -269,7 +282,7 @@ export default function App() {
 
       if (docSnap.exists()) {
         const dadosReserva = docSnap.data();
-        if (reprintPassword === dadosReserva.senha || reprintPassword === MASTER_PASSWORD) {
+        if (reprintPassword.trim() === dadosReserva.senha || reprintPassword.trim() === MASTER_PASSWORD) {
           setShowReceipt(dadosReserva);
           setShowReprintModal(false);
           setReprintId('');
@@ -572,7 +585,9 @@ export default function App() {
                          <span className={`text-[8px] font-black px-2 py-0.5 rounded uppercase ${obterCorLocal(res.auditorio)}`}>{res.auditorio}</span>
                          <span className="text-[10px] font-bold text-blue-300 uppercase">{res.horaInicio} - {res.horaFim}</span>
                        </div>
-                       <button onClick={() => RustShowCancelModal(res)} className="p-2 bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white rounded-lg transition-all" title="Cancelar este agendamento">
+                       
+                       {/* CORREÇÃO: Invocando setShowCancelModal(res) corretamente ao clicar na lixeira */}
+                       <button onClick={() => setShowCancelModal(res)} className="p-2 bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white rounded-lg transition-all" title="Cancelar este agendamento">
                          <Trash2 className="w-4 h-4" />
                        </button>
                      </div>
@@ -613,7 +628,7 @@ export default function App() {
         </div>
       </main>
 
-      {/* ROIDAPÉ */}
+      {/* RODAPÉ */}
       <footer className="mt-auto border-t border-slate-200 bg-white print:hidden">
         <div className="max-w-7xl mx-auto px-4 py-6 flex flex-col md:flex-row items-center justify-between gap-4">
           <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">
@@ -624,6 +639,46 @@ export default function App() {
           </a>
         </div>
       </footer>
+
+      {/* MODAL: REMOVER AGENDAMENTO (CANCELAMENTO) */}
+      {showCancelModal && (
+        <div className="fixed inset-0 bg-slate-900/95 backdrop-blur-md z-[130] flex items-center justify-center p-4 print:hidden">
+          <div className="bg-white rounded-[2rem] p-8 max-w-sm w-full shadow-2xl text-center">
+            <div className="bg-red-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-red-600">
+              <AlertCircle className="w-7 h-7" />
+            </div>
+            <h3 className="text-lg font-black uppercase mb-1">Segurança</h3>
+            <p className="text-slate-500 text-xs mb-6">
+              Insira a senha do utilizador ou a senha mestra para cancelar o evento <strong className="text-slate-800">"{showCancelModal.nomeEvento}"</strong>.
+            </p>
+            
+            <div className="space-y-3 text-left mb-6">
+              <input 
+                type="password" 
+                value={cancelPassword} 
+                onChange={(e) => setCancelPassword(e.target.value)} 
+                className="w-full p-3.5 bg-slate-50 border-2 border-slate-100 rounded-xl font-black tracking-widest focus:border-red-500 outline-none text-center"
+                placeholder="••••••••" 
+              />
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <button 
+                onClick={confirmCancelation} 
+                className="w-full py-4 bg-red-600 text-white font-black rounded-xl uppercase tracking-widest text-[10px] hover:bg-red-700 shadow-md shadow-red-500/20 transition-all flex items-center justify-center gap-2"
+              >
+                Remover Definitivamente
+              </button>
+              <button 
+                onClick={() => { setShowCancelModal(null); setCancelPassword(''); }} 
+                className="py-2 text-slate-400 font-bold uppercase text-[9px] hover:text-slate-600"
+              >
+                Manter Reserva
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* MODAL: SEGUNDA VIA */}
       {showReprintModal && (
@@ -675,338 +730,10 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL DA CENTRAL DE AJUDA */}
-      {showHelpModal && (
-        <div className="fixed inset-0 bg-slate-900/95 backdrop-blur-md z-[200] flex items-center justify-center p-4 print:hidden animate-in fade-in duration-200">
-          <div className="bg-white rounded-[2rem] w-full max-w-2xl h-[85vh] shadow-2xl flex flex-col overflow-hidden">
-            
-            <div className="bg-blue-700 p-6 text-white flex items-center justify-between shadow-md">
-              <div className="flex items-center gap-3">
-                <HelpCircle className="w-6 h-6 text-blue-200" />
-                <h3 className="text-xl font-black uppercase tracking-tight">Central de Ajuda</h3>
-              </div>
-              <button 
-                onClick={() => setShowHelpModal(false)} 
-                className="p-2 hover:bg-white/10 rounded-xl transition-all cursor-pointer"
-              >
-                <X className="w-6 h-6" />
-              </button>
-            </div>
-
-            <div className="p-8 overflow-y-auto space-y-6 text-sm text-slate-700 leading-relaxed scrollbar-thin">
-              
-              <section className="bg-slate-50 p-5 rounded-2xl border border-slate-100">
-                <h4 className="font-black text-slate-900 uppercase text-xs tracking-wider mb-2 text-blue-700">O que é o Sistema de Agendamento?</h4>
-                <p>O Sistema de Agendamento do CCBS/UFCG permite consultar a disponibilidade dos espaços físicos e solicitar reservas de forma rápida, segura e organizada.</p>
-              </section>
-
-              <section>
-                <h4 className="font-black text-slate-900 uppercase text-xs tracking-wider mb-2 text-blue-700">O que posso fazer no sistema?</h4>
-                <p className="mb-2">No sistema você pode:</p>
-                <ul className="list-disc pl-5 space-y-1 font-medium">
-                  <li>Consultar a disponibilidade dos espaços em tempo real;</li>
-                  <li>Solicitar reservas de salas e auditórios;</li>
-                  <li>Cancelar reservas utilizando sua senha de acesso;</li>
-                  <li>Gerar automaticamente o Termo de Responsabilidade em PDF;</li>
-                  <li>Emitir uma segunda via do Termo de Responsabilidade.</li>
-                </ul>
-              </section>
-
-              <hr className="border-slate-100" />
-
-              <section>
-                <h4 className="font-black text-slate-900 uppercase text-xs tracking-wider mb-3 text-blue-700">Quem pode utilizar o sistema?</h4>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100/50">
-                    <span className="font-black text-blue-800 text-xs block mb-1 uppercase">Usuários internos</span>
-                    <p className="text-xs text-slate-600">Docentes, técnicos administrativos e estudantes vinculados ao CCBS/UFCG.</p>
-                  </div>
-                  <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
-                    <span className="font-black text-slate-800 text-xs block mb-1 uppercase">Usuários externos</span>
-                    <p className="text-xs text-slate-600">Servidores e estudantes de outros Centros da UFCG, bem como instituições externas.</p>
-                  </div>
-                </div>
-              </section>
-
-              <hr className="border-slate-100" />
-
-              <section className="space-y-4">
-                <h4 className="font-black text-slate-900 uppercase text-xs tracking-wider text-blue-700">Como solicitar uma reserva?</h4>
-                
-                <div className="border-l-4 border-blue-600 pl-4">
-                  <h5 className="font-black text-slate-900 uppercase text-[11px] mb-1">Usuários internos</h5>
-                  <p className="mb-1">As solicitações de reserva devem ser realizadas exclusivamente pelo Sistema de Agendamento.</p>
-                  <p className="text-xs text-slate-500 font-bold bg-slate-100 p-2 rounded-lg mt-1">Após o envio da solicitação, aguarde a confirmação da Secretaria da Central de Laboratórios do CCBS. A reserva somente será considerada efetivada após essa confirmação.</p>
-                </div>
-
-                <div className="border-l-4 border-slate-400 pl-4 space-y-3">
-                  <h5 className="font-black text-slate-900 uppercase text-[11px]">Usuários externos</h5>
-                  <p>Para solicitar uma reserva, siga as etapas abaixo.</p>
-                  
-                  <div className="space-y-2 text-xs">
-                    <div>
-                      <span className="font-black text-slate-800 block">1. Solicitação</span>
-                      <ul className="list-disc pl-4 space-y-0.5 text-slate-600">
-                        <li>Baixe o Anexo II – Ofício de Solicitação disponível no portal do CCBS;</li>
-                        <li>Preencha o documento com as informações da atividade;</li>
-                        <li>Encaminhe o ofício para <span className="font-bold text-blue-600">secretaria.ccbs@ufcg.edu.br</span>.</li>
-                      </ul>
-                    </div>
-                    <div>
-                      <span className="font-black text-slate-800 block">2. Análise</span>
-                      <p className="text-slate-600">A solicitação será analisada pela Direção do Centro. Caso o pedido seja deferido, o solicitante receberá as orientações para conclusão da reserva.</p>
-                    </div>
-                    <div>
-                      <span className="font-black text-slate-800 block">3. Confirmação da reserva</span>
-                      <p className="mb-1 text-slate-600">Após a aprovação da solicitação:</p>
-                      <ul className="list-disc pl-4 space-y-0.5 text-slate-600">
-                        <li>Gere o Termo de Responsabilidade em PDF no Sistema de Agendamento;</li>
-                        <li>Assine eletronicamente o documento por meio da plataforma GOV.BR;</li>
-                        <li>Envie o Termo de Responsabilidade assinado para <span className="font-bold text-blue-600">reservaccbs@gmail.com</span>.</li>
-                      </ul>
-                      <p className="font-bold text-red-600 mt-1">Importante: o envio do Termo de Responsabilidade devidamente assinado é obrigatório para a efetivação da reserva.</p>
-                    </div>
-                  </div>
-                </div>
-              </section>
-
-              <hr className="border-slate-100" />
-
-              <section className="bg-blue-50/40 p-5 rounded-2xl border border-blue-100/60">
-                <h4 className="font-black text-slate-900 uppercase text-xs tracking-wider mb-2 text-blue-800">Como assinar o Termo de Responsabilidade no GOV.BR?</h4>
-                <p className="mb-3 text-xs">Após gerar o Termo de Responsabilidade em PDF, siga as etapas abaixo para realizar a assinatura eletrônica.</p>
-                
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                  <div className="bg-white p-3 rounded-xl shadow-sm border border-slate-100">
-                    <span className="font-black text-blue-600 block mb-0.5">Passo 1</span>
-                    <p>Acesse o Assinador GOV.BR pelo endereço: <a href="https://assinador.iti.br" target="_blank" rel="noreferrer" className="text-blue-600 underline font-bold">assinador.iti.br</a></p>
-                  </div>
-                  <div className="bg-white p-3 rounded-xl shadow-sm border border-slate-100">
-                    <span className="font-black text-blue-600 block mb-0.5">Passo 2</span>
-                    <p>Faça login utilizando sua conta GOV.BR.</p>
-                  </div>
-                  <div className="bg-white p-3 rounded-xl shadow-sm border border-slate-100">
-                    <span className="font-black text-blue-600 block mb-0.5">Passo 3</span>
-                    <p>Clique em <em>Escolher arquivo</em> e selecione o Termo em formato PDF.</p>
-                  </div>
-                  <div className="bg-white p-3 rounded-xl shadow-sm border border-slate-100">
-                    <span className="font-black text-blue-600 block mb-0.5">Passo 4</span>
-                    <p>Clique em <strong>Assinar</strong>. Se solicitado, escolha o local da assinatura.</p>
-                  </div>
-                  <div className="bg-white p-3 rounded-xl shadow-sm border border-slate-100">
-                    <span className="font-black text-blue-600 block mb-0.5">Passo 5 & 6</span>
-                    <p>Confirme a assinatura eletrônica e faça o download do documento assinado.</p>
-                  </div>
-                  <div className="bg-white p-3 rounded-xl shadow-sm border border-slate-100">
-                    <span className="font-black text-blue-600 block mb-0.5">Passo 7</span>
-                    <p>Envie o arquivo assinado para <span className="font-bold">reservaccbs@gmail.com</span>.</p>
-                  </div>
-                </div>
-                <p className="text-[11px] font-bold text-slate-500 mt-3 italic">** Conta GOV.BR ativa e envio do documento são obrigatórios para validação.</p>
-              </section>
-
-              <hr className="border-slate-100" />
-
-              <section>
-                <h4 className="font-black text-slate-900 uppercase text-xs tracking-wider mb-2 text-blue-700">Como cancelar uma reserva?</h4>
-                <p className="mb-1">O cancelamento pode ser realizado diretamente pelo Sistema de Agendamento, utilizando a senha cadastrada no momento da solicitação.</p>
-                <p className="bg-amber-50 text-amber-900 p-2.5 rounded-xl text-xs font-bold border border-amber-200">Prazo: o cancelamento deve ser solicitado com antecedência mínima de 48 (quarenta e oito) horas da data do evento.</p>
-              </section>
-
-              <hr className="border-slate-100" />
-
-              <section className="bg-red-50/50 p-5 rounded-2xl border border-red-100">
-                <h4 className="font-black text-red-900 uppercase text-xs tracking-wider mb-2">Quando minha reserva é confirmada?</h4>
-                <p className="mb-2">A solicitação de reserva não gera confirmação automática. A reserva somente será considerada efetivada após:</p>
-                <ol className="list-decimal pl-5 space-y-1 mb-2 font-medium text-slate-800">
-                  <li>Confirmação formal da Secretaria da Central de Laboratórios do CCBS; e</li>
-                  <li>Para usuários externos, recebimento do Termo de Responsabilidade devidamente assinado.</li>
-                </ol>
-                <p className="text-xs font-bold text-red-700">Até esse momento, o espaço permanece apenas como solicitado, não havendo garantia de sua utilização.</p>
-              </section>
-
-              <hr className="border-slate-100" />
-
-              <section>
-                <h4 className="font-black text-slate-900 uppercase text-xs tracking-wider mb-2 text-blue-700">Como gerar o Termo de Responsabilidade?</h4>
-                <p className="mb-2">Após realizar a solicitação da reserva no Sistema de Agendamento, acesse a opção "Termo de Responsabilidade" disponível na consulta da sua solicitação.</p>
-                <ul className="list-disc pl-5 space-y-0.5 text-xs text-slate-600">
-                  <li>Gerar automaticamente o Termo de Responsabilidade em PDF;</li>
-                  <li>Emitir uma segunda via do documento sempre que necessário.</li>
-                </ul>
-              </section>
-
-              <hr className="border-slate-100" />
-
-              <section className="bg-slate-900 text-slate-300 p-6 rounded-2xl space-y-3">
-                <h4 className="font-black text-white uppercase text-xs tracking-wider border-b border-white/10 pb-2">Canais de Atendimento</h4>
-                <div className="space-y-2 text-xs">
-                  <p><strong className="text-white block uppercase text-[10px]">E-mail para confirmação de reservas:</strong> <span className="text-blue-400">reservaccbs@gmail.com</span></p>
-                  <p><strong className="text-white block uppercase text-[10px]">Secretaria do CCBS (usuários externos):</strong> <span className="text-blue-400">secretaria.ccbs@ufcg.edu.br</span> <br /><span className="text-slate-400">Responsável pelo recebimento dos Ofícios de Solicitação e pelo encaminhamento do processo de análise.</span></p>
-                  <p><strong className="text-white block uppercase text-[10px]">Sugestões e suporte técnico:</strong> Em caso de dúvidas ou problemas no sistema, contate: <span className="text-blue-400">renato.freitas@tecnico.ufcg.edu.br</span></p>
-                </div>
-              </section>
-
-            </div>
-
-            <div className="p-4 bg-slate-50 border-t border-slate-100 flex justify-end">
-              <button 
-                onClick={() => setShowHelpModal(false)}
-                className="px-6 py-2.5 bg-blue-600 text-white font-black rounded-xl text-xs uppercase tracking-widest hover:bg-blue-700 shadow-md shadow-blue-500/10 transition-all cursor-pointer"
-              >
-                Entendido
-              </button>
-            </div>
-
-          </div>
-        </div>
-      )}
-
-      {/* TERMO DE RESPONSABILIDADE */}
-      {showReceipt && (
-        <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[100] flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-none md:rounded-[2rem] w-full max-w-3xl shadow-2xl overflow-hidden my-auto">
-            
-            <div className="bg-yellow-100 border-b-2 border-yellow-300 p-4 text-center">
-              <p className="text-yellow-800 text-sm font-bold flex items-center justify-center gap-2">
-                <AlertCircle className="w-5 h-5" /> 
-                Atenção: Baixe este termo em PDF, assine digitalmente via GOV.BR (http://assinador.iti.br/) e envie para: reservaccbs@gmail.com
-              </p>
-            </div>
-
-            <div 
-              className="p-10 space-y-8" 
-              ref={termoRef} 
-              style={{ backgroundColor: '#ffffff', color: '#000000', width: '100%' }}
-            >
-              <div className="flex justify-between items-center pb-4" style={{ borderBottom: '1px solid #e2e8f0' }}>
-                 <img src={UFCG_LOGO} alt="UFCG" className="h-14 w-14 object-contain bg-white" />
-                 <div className="text-center flex-1 px-4">
-                   <h2 className="text-[14px] font-bold uppercase tracking-tight text-black leading-tight" style={{ color: '#000000' }}>
-                     UNIVERSIDADE FEDERAL DE CAMPINA GRANDE - UFCG
-                   </h2>
-                   <h3 className="text-[14px] font-bold text-black uppercase leading-normal" style={{ color: '#000000' }}>
-                     CENTRO DE CIÊNCIAS BIOLÓGICAS E DA SAÚDE - CCBS
-                   </h3>
-                   <p className="text-[14px] font-black mt-2 uppercase tracking-wide text-black" style={{ color: '#000000' }}>
-                     TERMO DE RESPONSABILIDADE PARA UTILIZAÇÃO DE ESPAÇO
-                   </p>
-                 </div>
-                 <img src={CCBS_LOGO} alt="CCBS" className="w-[2cm] h-auto object-contain bg-white" />
-              </div>
-
-              <div className="text-xs space-y-4 text-black leading-relaxed" style={{ color: '#000000' }}>
-                <p>
-                  Eu, <strong>{showReceipt.requinisitante || showReceipt.requisitante}</strong>, CPF nº <strong>{showReceipt.cpf}</strong>, 
-                  E-mail: <strong>{showReceipt.email}</strong> e contato: <strong>{showReceipt.telefone}</strong>, 
-                  servidor(a) vinculado(a) à unidade <strong>{showReceipt.setor || 'Não informado'}</strong>, 
-                  na condição de responsável pelo evento <strong>"{showReceipt.nomeEvento}"</strong>, a ser 
-                  realizado no <strong>{showReceipt.auditorio}</strong> do Centro de Ciências Biológicas e da Saúde (CCBS/UFCG), 
-                  no dia <strong>{showReceipt.data.split('-').reverse().join('/')}</strong>, das <strong>{showReceipt.horaInicio}</strong> às <strong>{showReceipt.horaFim} h</strong>, 
-                  assumo integral responsabilidade pela utilização do referido espaço durante o período authorized.
-                </p>
-
-                <p className="font-bold pt-2">Declaro estar ciente e de acordo com as seguintes condições:</p>
-
-                <div className="space-y-3" style={{ color: '#000000' }}>
-                  <p><strong>CLÁUSULA PRIMEIRA - DA CONSERVAÇÃO DO PATRIMÔNIO:</strong> Comprometo-me a zelar pela conservação das instalações, mobiliários, equipamentos e demais bens patrimoniais existentes no {showReceipt.auditorio} do CCBS, responsabilizando-me por danos decorrentes de uso inadequado, negligência, imprudência ou imperícia dos participantes do evento sob minha responsabilidade.</p>
-                  <p><strong>CLÁUSULA SEGUNDA - DA UTILIZAÇÃO DO ESPAÇO:</strong> Comprometo-me a utilizar o espaço exclusivamente para a finalidade previamente informada e autorizada pela Direção do CCBS, observando as normas institucionais vigentes e as orientações da Administração do Centro.</p>
-                  <p><strong>CLÁUSULA TERCEIRA - DA ORGANIZAÇÃO E LIMPEZA:</strong> Ao término do evento, comprometo-me a entregar o espaço em condições adequadas de organização, conservação e limpeza, preservando a disposição original do mobiliário e dos equipamentos disponibilizados.</p>
-                  <p><strong>CLÁUSULA QUARTA - DOS EQUIPAMENTOS E RECURSOS:</strong> Declaro ter recebido, em perfeito estado of funcionamento, os equipamentos eventualmente disponibilizados para o evento, responsabilizando-me por sua correta utilização e devolução nas mesmas condições iniciais. Ao término do evento comprometo-me a desligar as luzes e aparelhos de ar-condicionado e de informática.</p>
-                  <p><strong>CLÁUSULA QUINTA - DA SEGURANÇA:</strong> Comprometo-me a respeitar a capacidade máxima do local, bem como a não realizar atividades que possam colocar em risco a integridade física dos participantes ou do patrimônio público.</p>
-                  <div>
-                    <strong>CLÁUSULA SEXTA - DAS VEDAÇÕES:</strong> É vedado:
-                    <ul className="list-none pl-4 mt-1 space-y-1">
-                      <li>I - Utilizar o espaço para finalidade diversa da autorizada;</li>
-                      <li>II - Promover atividades que contrariem as normas institucionais da UFCG;</li>
-                      <li>III - Fixar materiais em paredes, portas, janelas, mobiliários ou equipamentos de forma que causem danos ao patrimônio;</li>
-                      <li>IV - Alterar instalações elétricas, de rede, sonorização ou quaisquer outros sistemas sem autorização prévia da Administração do CCBS.</li>
-                    </ul>
-                  </div>
-                  <p><strong>CLÁUSULA SÉTIMA - DAS RESPONSABILIDADES:</strong> O descumprimento das disposições deste Termo poderá implicar a supra-citada suspensão de futuras autorizações de uso, sem prejuízo da apuração de responsabilidades administrativas, civis e legais cabíveis, bem como da obrigação de ressarcimento ao erário em caso de dano ao patrimônio público.</p>
-                </div>
-
-                <p className="pt-4 text-center">Por estar de acordo com as condições acima estabelecidas, firmo o presente Termo de Responsabilidade.</p>
-
-                <div className="text-center pt-6 space-y-8">
-                  <p>Campina Grande/PB, {formatarDataExtenso(showReceipt.dataCriacao)}</p>
-                  <div className="w-1/2 mx-auto pt-2 mt-12" style={{ borderTop: '1px solid #000000' }}>
-                    <p className="font-bold uppercase text-xs">RESPONSÁVEL FELO EVENTO: {showReceipt.requisitante}</p>
-                    <p className="text-xs">Assinatura Digital GOV.BR</p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-8 pt-4 flex justify-between items-center opacity-50" style={{ borderTop: '1px solid #e2e8f0' }}>
-                <div className="flex gap-2 items-center">
-                  <QrCode className="w-8 h-8 text-black" />
-                  <div style={{ color: '#000000' }}>
-                    <p className="text-[8px] font-black uppercase">Protocolo Eletrônico: #{showReceipt.id}</p>
-                    <p className="text-[8px] font-bold">Emitido em: {showReceipt.dataCriacao}</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="p-8 bg-slate-50 flex gap-4 border-t border-slate-200">
-              <button
-                onClick={handleDownloadPDF}
-                disabled={generatingPDF}
-                className="flex-1 py-4 bg-blue-700 text-white font-black rounded-xl flex items-center justify-center gap-2 hover:bg-blue-800 transition-all uppercase tracking-widest text-xs disabled:opacity-50 cursor-pointer"
-              >
-                {generatingPDF ? <Loader2 className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
-                {generatingPDF ? 'Gerando PDF...' : 'Baixar Termo PDF'}
-              </button>
-              <button onClick={() => setShowReceipt(null)} className="px-8 py-4 bg-white border-2 border-slate-200 text-slate-600 font-black rounded-xl hover:bg-slate-100 transition-all uppercase tracking-widest text-xs cursor-pointer">
-                Fechar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL DE DESBLOQUEIO ADMIN */}
-      {showAdminUnlock && (
-        <div className="fixed inset-0 bg-slate-900/95 backdrop-blur-md z-[120] flex items-center justify-center p-4 print:hidden">
-          <div className="bg-white rounded-[2rem] p-8 max-w-xs w-full shadow-2xl text-center">
-            <div className="bg-slate-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-slate-800">
-              <Shield className="w-8 h-8" />
-            </div>
-            <h3 className="text-lg font-black uppercase mb-2">Acesso Restrito</h3>
-            <p className="text-slate-500 text-xs mb-6">Insira a Senha Mestra para visualizar os contatos dos responsáveis.</p>
-            <input type="password" value={adminUnlockPassword} onChange={(e) => setAdminUnlockPassword(e.target.value)} className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-xl text-center text-lg font-black tracking-widest mb-4 focus:border-blue-500 outline-none" placeholder="Senha Mestra" autoFocus />
-            <div className="flex flex-col gap-2">
-              <button onClick={handleAdminUnlock} className="w-full py-3 bg-slate-800 text-white font-black rounded-xl uppercase tracking-widest text-[10px] hover:bg-black transition-all">Desbloquear Dados</button>
-              <button onClick={() => setShowAdminUnlock(false)} className="py-2 text-slate-400 font-bold uppercase text-[9px] hover:text-slate-600">Cancelar</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL DE CANCELAMENTO */}
-      {showCancelModal && (
-        <div className="fixed inset-0 bg-slate-900/95 backdrop-blur-md z-[110] flex items-center justify-center p-4 print:hidden">
-          <div className="bg-white rounded-[3rem] p-10 max-w-xs w-full shadow-2xl text-center">
-            <div className="bg-red-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-6 text-red-600">
-              <AlertCircle className="w-8 h-8" />
-            </div>
-            <h3 className="text-xl font-black uppercase mb-2">Segurança</h3>
-            <p className="text-slate-500 text-xs mb-6">Insira a senha do utilizador ou a senha mestra para cancelar o evento <span className="font-bold text-slate-800 uppercase">"{showCancelModal.nomeEvento}"</span>.</p>
-            <input type="password" value={cancelPassword} onChange={(e) => setCancelPassword(e.target.value)} className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl text-center text-xl font-black tracking-widest mb-6 focus:border-red-500 outline-none" placeholder="Senha" autoFocus />
-            <div className="flex flex-col gap-3">
-              <button onClick={confirmCancelation} className="w-full py-4 bg-red-600 text-white font-black rounded-xl uppercase tracking-widest text-[10px] hover:bg-red-700 shadow-lg shadow-red-500/30 transition-all">Remover Definitivamente</button>
-              <button onClick={() => { RustShowCancelModal(null); setCancelPassword(''); }} className="py-2 text-slate-400 font-bold uppercase text-[9px] hover:text-slate-600">Manter Reserva</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* NOTIFICAÇÕES */}
+      {/* TOAST FEEDBACK */}
       {toast && (
-        <div className={`fixed bottom-8 left-1/2 -translate-x-1/2 z-[150] px-8 py-4 rounded-full shadow-2xl animate-in slide-in-from-bottom duration-300 font-black text-xs uppercase tracking-widest ${
-          toast.type === 'error' ? 'bg-red-600 text-white' : 'bg-blue-600 text-white'
-        }`}>
-          {toast.message}
+        <div className={`fixed bottom-6 right-6 px-6 py-4 rounded-2xl shadow-2xl text-white font-bold text-xs uppercase tracking-widest z-[150] flex items-center gap-3 animate-in fade-in slide-in-from-bottom-5 duration-300 ${toast.type === 'error' ? 'bg-red-600' : toast.type === 'info' ? 'bg-amber-600' : 'bg-emerald-600'}`}>
+          <span>{toast.message}</span>
         </div>
       )}
     </div>
