@@ -1057,7 +1057,7 @@ export function App() {
                       <li>Acesse o site do GOV.BR: <a href="https://assinador.iti.br" target="_blank" rel="noopener noreferrer" className="text-blue-600 font-bold underline">assinador.iti.br</a>.</li>
                       <li>Entre com sua conta do governo e assine o PDF digitalmente.</li>
                       <li>
-                        Conforme a <strong>Resolução CONSAD/CCBS n° 01/2026</strong>, envie o termo assinado para: <a href="mailto:reservaccbs@gmail.com" className="font-bold text-blue-700 underline">reservaccbs@gmail.com</a> em até <strong>48 horas</strong>, sob pena de cancelamento da reserva.
+                        Conforme a <strong>Resolução CONSAD/CCBS n° 01/2026</strong>, envie o termo assinado para: <a href="mailto:reservaccbs@gmail.com" className="font-bold text-blue-700 underline">reservaccbs@gmail.com</a> em até <strong>48 horas</strong>, para evitar o cancelamento da reserva.
                       </li>
                     </ol>
                   </div>
