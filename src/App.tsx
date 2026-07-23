@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import html2canvas from 'html2canvas';
+import html2canvas from 'html2canvas-pro';
 import jsPDF from 'jspdf';
 import { 
   Calendar as CalendarIcon, 
@@ -338,7 +338,9 @@ export default function App() {
     setGeneratingPDF(true);
 
     try {
-      // Captura gráfica do elemento HTML usando html2canvas
+      // Captura gráfica do elemento HTML usando html2canvas-pro
+      // (o "-pro" é necessário porque este projeto usa cores em oklch(),
+      // que a biblioteca original html2canvas não sabe interpretar)
       const canvas = await html2canvas(elemento, { 
         scale: 2,                     // Alta qualidade de imagem
         backgroundColor: '#ffffff',    // Garante fundo branco
