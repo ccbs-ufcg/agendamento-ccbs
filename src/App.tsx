@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import html2canvas from 'html2canvas-pro';
+import html2canvas from 'html2canvas'; // Importação corrigida para a biblioteca padrão
 import jsPDF from 'jspdf';
 import { 
   Calendar as CalendarIcon, 
@@ -202,7 +202,6 @@ export default function App() {
       return;
     }
 
-    // Gera um código de protocolo único em maiúsculas
     const id = Math.random().toString(36).substr(2, 9).toUpperCase();
     const novaReserva = { 
       ...formData, 
@@ -271,9 +270,6 @@ export default function App() {
     }
   };
 
-  // ==========================================
-  // 5. FUNÇÃO CORRIGIDA: BUSCA DA 2ª VIA DO TERMO
-  // ==========================================
   const handleFetchSecondCopy = async () => {
     if (!reprintId || !reprintPassword) {
       showToast('Insira o Protocolo e a Senha!', 'error');
@@ -283,16 +279,13 @@ export default function App() {
     setLoadingSecondCopy(true);
 
     try {
-      // Normalização das entradas para evitar divergências
       const idBuscado = reprintId.trim().toUpperCase();
       const senhaBuscada = reprintPassword.trim();
 
-      // 1ª Tentativa: Busca no estado local mantido na memória
       let dadosReserva = reservas.find(
         r => r.id && String(r.id).trim().toUpperCase() === idBuscado
       );
 
-      // 2ª Tentativa: Se não achou na memória, faz consulta direta no Firestore
       if (!dadosReserva && db) {
         const docRef = doc(db, 'artifacts', appId as string, 'public', 'data', 'reservas_ccbs', idBuscado);
         const docSnap = await getDoc(docRef);
@@ -301,7 +294,6 @@ export default function App() {
         }
       }
 
-      // Validação dos dados encontrados
       if (dadosReserva) {
         const senhaCadastrada = String(dadosReserva.senha || '').trim();
 
@@ -325,9 +317,6 @@ export default function App() {
     }
   };
 
-  // ==========================================
-  // 6. FUNÇÃO CORRIGIDA: GERAÇÃO DE PDF
-  // ==========================================
   const handleDownloadPDF = async () => {
     const elemento = termoRef.current;
     if (!elemento) {
@@ -338,14 +327,11 @@ export default function App() {
     setGeneratingPDF(true);
 
     try {
-      // Captura gráfica do elemento HTML usando html2canvas-pro
-      // (o "-pro" é necessário porque este projeto usa cores em oklch(),
-      // que a biblioteca original html2canvas não sabe interpretar)
       const canvas = await html2canvas(elemento, { 
-        scale: 2,                     // Alta qualidade de imagem
-        backgroundColor: '#ffffff',    // Garante fundo branco
-        useCORS: true,                // Permite recursos de origens cruzadas
-        allowTaint: false,            // OBRIGATÓRIO: Mantém o canvas limpo para permitir a conversão a PNG
+        scale: 2,
+        backgroundColor: '#ffffff',
+        useCORS: true,
+        allowTaint: false,
         logging: false,
         scrollX: 0,
         scrollY: 0,
@@ -355,10 +341,9 @@ export default function App() {
       
       const imgData = canvas.toDataURL('image/png');
 
-      // Criação do documento PDF em A4
       const pdf = new jsPDF('p', 'mm', 'a4');
-      const pageWidth = pdf.internal.pageSize.getWidth();   // 210 mm
-      const pageHeight = pdf.internal.pageSize.getHeight(); // 297 mm
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
 
       const margin = 10;
       const imgWidth = pageWidth - (margin * 2);
@@ -373,7 +358,6 @@ export default function App() {
       console.error("Erro na conversão para PDF:", err);
       showToast('A abrir caixa de impressão do navegador...', 'info');
       
-      // Fallback automático para a caixa de impressão nativa
       setTimeout(() => {
         window.print();
       }, 400);
@@ -438,13 +422,10 @@ export default function App() {
     return days;
   };
 
-  // ==========================================
-  // 7. ESTRUTURA VISUAL (JSX)
-  // ==========================================
   return (
     <div className="min-h-screen bg-slate-100 font-sans text-slate-800 pb-12 flex flex-col print:bg-white print:p-0">
       
-      {/* MENSAGEM DE NOTIFICAÇÃO (TOAST) */}
+      {/* NOTIFICAÇÃO (TOAST) */}
       {toast && (
         <div className={`fixed bottom-6 right-6 z-[200] px-6 py-3 rounded-2xl shadow-2xl text-white font-bold text-xs uppercase tracking-wider animate-bounce print:hidden ${toast.type === 'error' ? 'bg-red-600' : 'bg-blue-600'}`}>
           {toast.message}
@@ -558,7 +539,7 @@ export default function App() {
           </div>
         </div>
 
-        {/* CALENDÁRIO DE AGENDAMENTOS */}
+        {/* CALENDÁRIO */}
         <div className="lg:col-span-8 space-y-6 relative">
           <div className="bg-white rounded-[2.5rem] shadow-xl border border-slate-200 overflow-hidden">
             <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
@@ -594,7 +575,7 @@ export default function App() {
             </div>
           </div>
 
-          {/* PAINEL DE DETALHES DO DIA SELECIONADO */}
+          {/* DETALHES DO DIA SELECIONADO */}
           {selectedDayReservas && (
             <div className="bg-slate-900 rounded-[2rem] p-8 text-white shadow-2xl animate-in slide-in-from-right duration-500 relative overflow-hidden">
                <div className="absolute top-0 right-0 w-32 h-32 bg-blue-600/10 rounded-full -mr-16 -mt-16 blur-3xl"></div>
@@ -678,11 +659,7 @@ export default function App() {
         </div>
       </footer>
 
-      {/* ==========================================
-          MODAIS AUXILIARES
-         ========================================== */}
-
-      {/* MODAL 1: CANCELAMENTO */}
+      {/* MODAIS AUXILIARES */}
       {showCancelModal && (
         <div className="fixed inset-0 bg-slate-900/95 backdrop-blur-md z-[130] flex items-center justify-center p-4 print:hidden">
           <div className="bg-white rounded-[2rem] p-8 max-w-sm w-full shadow-2xl text-center">
@@ -722,7 +699,6 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL 2: FORMULÁRIO DA 2ª VIA DO TERMO */}
       {showReprintModal && (
         <div className="fixed inset-0 bg-slate-900/95 backdrop-blur-md z-[140] flex items-center justify-center p-4 print:hidden">
           <div className="bg-white rounded-[2rem] p-8 max-w-md w-full shadow-2xl text-center relative">
@@ -787,12 +763,10 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL 3: EXIBIÇÃO E DESCARREGAMENTO DO TERMO DE AGENDAMENTO */}
       {showReceipt && (
         <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[150] flex items-center justify-center p-4 overflow-y-auto print:p-0 print:bg-white print:static">
           <div className="bg-white rounded-3xl p-6 md:p-8 max-w-2xl w-full shadow-2xl relative my-8 print:shadow-none print:p-0 print:m-0">
             
-            {/* Controlo do Modal */}
             <div className="flex justify-between items-center mb-6 print:hidden">
               <button 
                 onClick={() => setShowReceipt(null)}
@@ -812,10 +786,7 @@ export default function App() {
               </div>
             </div>
 
-            {/* CONTEÚDO DO TERMO (CAPTURADO PELO HTML2CANVAS) */}
             <div ref={termoRef} className="p-8 bg-white border border-slate-200 rounded-2xl text-slate-800 space-y-6 print:border-none print:p-0">
-              
-              {/* Cabeçalho do Documento */}
               <div className="flex items-center justify-between border-b pb-4 border-slate-200">
                 <div>
                   <h2 className="text-lg font-black text-blue-900 uppercase">Termo de Agendamento</h2>
@@ -827,7 +798,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Informações da Reserva */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs leading-relaxed text-slate-700 bg-slate-50 p-4 rounded-xl border border-slate-100">
                 <div>
                   <p className="font-bold text-slate-400 text-[10px] uppercase">Evento</p>
@@ -855,7 +825,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Normas Gerais */}
               <div className="pt-4 border-t border-slate-200 text-[10px] text-slate-500 space-y-1.5">
                 <p className="font-bold uppercase text-slate-700 mb-1">Normas de Utilização:</p>
                 <p>• O responsável declara-se ciente de que é responsável pela conservação dos equipamentos e estrutura durante o evento.</p>
@@ -868,7 +837,6 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL 4: DESBLOQUEIO ADMINISTRATIVO */}
       {showAdminUnlock && (
         <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[140] flex items-center justify-center p-4 print:hidden">
           <div className="bg-white rounded-[2rem] p-8 max-w-sm w-full shadow-2xl text-center">
@@ -904,7 +872,6 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL 5: AJUDA E DOCUMENTAÇÃO */}
       {showHelpModal && (
         <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[140] flex items-center justify-center p-4 print:hidden">
           <div className="bg-white rounded-[2rem] p-8 max-w-md w-full shadow-2xl text-left relative">
