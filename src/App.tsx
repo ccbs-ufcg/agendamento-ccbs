@@ -27,7 +27,7 @@ import {
   HelpCircle
 } from 'lucide-react';
 
-// Importações oficiais da SDK do Firebase
+// Importações oficiais do Firebase
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, collection, onSnapshot, doc, getDoc, setDoc, deleteDoc } from 'firebase/firestore';
@@ -60,8 +60,6 @@ const HORARIOS = [
   '12:00', '13:00', '14:00', '15:00', '16:00', '17:00'
 ];
 const MASTER_PASSWORD = 'adminCCBS2026';
-
-// Caminhos das imagens de logotipo
 const UFCG_LOGO = 'logo-ufcg.png'; 
 
 export default function App() {
@@ -70,20 +68,20 @@ export default function App() {
   const [reservas, setReservas] = useState<any[]>([]);
   const [toast, setToast] = useState<{message: string, type: string} | null>(null);
 
-  // --- ESTADOS DOS MODAIS DE INTERFACE ---
+  // --- ESTADOS DOS MODAIS ---
   const [showCancelModal, setShowCancelModal] = useState<any>(null);
   const [showReceipt, setShowReceipt] = useState<any>(null);
   const [showAdminUnlock, setShowAdminUnlock] = useState(false);
   const [showReprintModal, setShowReprintModal] = useState(false);
   const [showHelpModal, setShowHelpModal] = useState(false); 
 
-  // --- ESTADOS DE FORMULÁRIOS E SEGURANÇA ---
+  // --- ESTADOS DOS FORMULÁRIOS ---
   const [cancelPassword, setCancelPassword] = useState('');
   const [adminUnlockPassword, setAdminUnlockPassword] = useState('');
   const [reprintId, setReprintId] = useState('');
   const [reprintPassword, setReprintPassword] = useState('');
 
-  // --- ESTADOS DE CONTROLE DE INTERFACE ---
+  // --- CONTROLO DE INTERFACE ---
   const [loading, setLoading] = useState(true);
   const [generatingPDF, setGeneratingPDF] = useState(false);
   const [loadingSecondCopy, setLoadingSecondCopy] = useState(false);
@@ -92,10 +90,10 @@ export default function App() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDayReservas, setSelectedDayReservas] = useState<{date: string, items: any[]} | null>(null);
 
-  // REFERÊNCIA HTML: Usada para capturar o elemento do Termo e gerar o PDF
+  // REFERÊNCIA HTML: Usada para capturar o Termo e converter para PDF
   const termoRef = useRef<HTMLDivElement>(null);
 
-  // ESTADO DO FORMULÁRIO DE NOVO AGENDAMENTO
+  // DADOS DO NOVO AGENDAMENTO
   const [formData, setFormData] = useState({
     auditorio: AUDITORIOS[0],
     data: '',
@@ -113,8 +111,6 @@ export default function App() {
   // ==========================================
   // 3. EFEITOS (AUTENTICAÇÃO E FIRESTORE)
   // ==========================================
-
-  // Autenticação inicial no Firebase
   useEffect(() => {
     if (!auth) {
       setLoading(false);
@@ -140,7 +136,7 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // Escuta em tempo real da coleção de agendamentos no Firestore
+  // Escuta em tempo real da coleção de reservas no Firestore
   useEffect(() => {
     if (!user || !db) return;
     const reservasRef = collection(db, 'artifacts', appId as string, 'public', 'data', 'reservas_ccbs');
@@ -156,12 +152,11 @@ export default function App() {
   }, [user]);
 
   // ==========================================
-  // 4. FUNÇÕES DE SUPORTE E MANIPULAÇÃO
+  // 4. FUNÇÕES DE SUPORTE
   // ==========================================
-
   const showToast = (message: string, type = 'success') => {
     setToast({ message, type });
-    setTimeout(() => setToast(null), 3000);
+    setTimeout(() => setToast(null), 3500);
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
@@ -170,7 +165,7 @@ export default function App() {
     if (name === 'data') {
       const d = new Date(value + 'T12:00:00');
       if (d.getDay() === 0 || d.getDay() === 6) {
-        showToast('Agendamentos apenas para dias úteis (Seg a Sex)!', 'error');
+        showToast('Agendamentos válidos apenas para dias úteis (Seg a Sex)!', 'error');
         return;
       }
     }
@@ -203,10 +198,11 @@ export default function App() {
     );
 
     if (conflito) {
-      showToast('Este horário já está ocupado por outro evento!', 'error');
+      showToast('Este horário já está reservado para outro evento!', 'error');
       return;
     }
 
+    // Gera um código de protocolo único em maiúsculas
     const id = Math.random().toString(36).substr(2, 9).toUpperCase();
     const novaReserva = { 
       ...formData, 
@@ -223,7 +219,7 @@ export default function App() {
       await setDoc(docRef, novaReserva);
       
       setShowReceipt(novaReserva);
-      showToast('Sucesso! Reserva realizada.');
+      showToast('Sucesso! Reserva efetuada.');
       
       setFormData({ 
         auditorio: AUDITORIOS[0], data: '', horaInicio: '07:00', horaFim: '08:00', 
@@ -231,7 +227,7 @@ export default function App() {
       });
     } catch (e) {
       console.error(e);
-      showToast('Erro ao salvar agendamento no banco de dados.', 'error');
+      showToast('Erro ao guardar o agendamento no servidor.', 'error');
     }
   };
 
@@ -239,7 +235,7 @@ export default function App() {
     if (!showCancelModal) return;
 
     const inputSenha = cancelPassword.trim();
-    const senhaReserva = showCancelModal.senha ? showCancelModal.senha.trim() : '';
+    const senhaReserva = showCancelModal.senha ? String(showCancelModal.senha).trim() : '';
 
     if (inputSenha === senhaReserva || inputSenha === MASTER_PASSWORD) {
       try {
@@ -256,7 +252,7 @@ export default function App() {
         setCancelPassword('');
         setSelectedDayReservas(null);
       } catch (e) { 
-        console.error("Erro ao deletar agendamento:", e);
+        console.error("Erro ao cancelar agendamento:", e);
         showToast('Erro ao remover o agendamento.', 'error'); 
       }
     } else {
@@ -275,98 +271,110 @@ export default function App() {
     }
   };
 
+  // ==========================================
+  // 5. FUNÇÃO CORRIGIDA: BUSCA DA 2ª VIA DO TERMO
+  // ==========================================
   const handleFetchSecondCopy = async () => {
     if (!reprintId || !reprintPassword) {
       showToast('Insira o Protocolo e a Senha!', 'error');
       return;
     }
+
     setLoadingSecondCopy(true);
+
     try {
-      const idBuscado = reprintId.toUpperCase().trim();
+      // Normalização das entradas para evitar divergências
+      const idBuscado = reprintId.trim().toUpperCase();
       const senhaBuscada = reprintPassword.trim();
 
-      let dadosReserva = reservas.find(r => r.id === idBuscado);
+      // 1ª Tentativa: Busca no estado local mantido na memória
+      let dadosReserva = reservas.find(
+        r => r.id && String(r.id).trim().toUpperCase() === idBuscado
+      );
 
+      // 2ª Tentativa: Se não achou na memória, faz consulta direta no Firestore
       if (!dadosReserva && db) {
         const docRef = doc(db, 'artifacts', appId as string, 'public', 'data', 'reservas_ccbs', idBuscado);
         const docSnap = await getDoc(docRef);
         if (docSnap.exists()) {
-          dadosReserva = docSnap.data();
+          dadosReserva = { id: docSnap.id, ...docSnap.data() };
         }
       }
 
+      // Validação dos dados encontrados
       if (dadosReserva) {
-        if (senhaBuscada === dadosReserva.senha || senhaBuscada === MASTER_PASSWORD) {
+        const senhaCadastrada = String(dadosReserva.senha || '').trim();
+
+        if (senhaBuscada === senhaCadastrada || senhaBuscada === MASTER_PASSWORD) {
           setShowReceipt(dadosReserva);
           setShowReprintModal(false);
           setReprintId('');
           setReprintPassword('');
-          showToast('Termo localizado com sucesso!');
+          showToast('Termo localizado com sucesso!', 'success');
         } else {
-          showToast('Senha incorreta!', 'error');
+          showToast('Senha incorreta para este protocolo!', 'error');
         }
       } else {
-        showToast('Protocolo não encontrado.', 'error');
+        showToast('Protocolo não encontrado no sistema.', 'error');
       }
     } catch (err) {
-      console.error("Erro ao buscar termo:", err);
-      showToast('Erro ao buscar dados no servidor.', 'error');
+      console.error("Erro ao buscar 2ª via:", err);
+      showToast('Erro ao comunicar com o servidor.', 'error');
     } finally {
       setLoadingSecondCopy(false);
     }
   };
 
   // ==========================================
-  // 5. FUNÇÃO CORRIGIDA E SEGURA DE GERAR PDF
+  // 6. FUNÇÃO CORRIGIDA: GERAÇÃO DE PDF
   // ==========================================
   const handleDownloadPDF = async () => {
     const elemento = termoRef.current;
     if (!elemento) {
-      showToast('Erro: Elemento do termo não encontrado.', 'error');
+      showToast('Erro: Elemento visual do termo não encontrado.', 'error');
       return;
     }
     
     setGeneratingPDF(true);
 
     try {
-      // 1. Captura o HTML com opções compatíveis de segurança
+      // Captura gráfica do elemento HTML usando html2canvas
       const canvas = await html2canvas(elemento, { 
-        scale: 2,                   // Alta resolução gráfica
-        backgroundColor: '#ffffff',  // Fundo branco limpo
-        useCORS: true,              // Permite carregar imagens CORS
-        allowTaint: false,          // CORREÇÃO: Deve ser 'false' para não bloquear o canvas.toDataURL()
+        scale: 2,                     // Alta qualidade de imagem
+        backgroundColor: '#ffffff',    // Garante fundo branco
+        useCORS: true,                // Permite recursos de origens cruzadas
+        allowTaint: false,            // OBRIGATÓRIO: Mantém o canvas limpo para permitir a conversão a PNG
         logging: false,
         scrollX: 0,
-        scrollY: 0
+        scrollY: 0,
+        windowWidth: elemento.scrollWidth,
+        windowHeight: elemento.scrollHeight
       });
       
-      // 2. Converte o canvas para imagem em formato PNG
       const imgData = canvas.toDataURL('image/png');
 
-      // 3. Instancia o documento PDF no formato A4 (210mm x 297mm)
+      // Criação do documento PDF em A4
       const pdf = new jsPDF('p', 'mm', 'a4');
       const pageWidth = pdf.internal.pageSize.getWidth();   // 210 mm
       const pageHeight = pdf.internal.pageSize.getHeight(); // 297 mm
 
-      // Margens e cálculo de proporção
       const margin = 10;
       const imgWidth = pageWidth - (margin * 2);
       const imgHeight = (canvas.height * imgWidth) / canvas.width;
       const finalHeight = imgHeight > (pageHeight - (margin * 2)) ? (pageHeight - (margin * 2)) : imgHeight;
 
-      // 4. Adiciona a imagem e salva o ficheiro PDF
       pdf.addImage(imgData, 'PNG', margin, margin, imgWidth, finalHeight);
-      pdf.save(`Termo_${showReceipt?.id || 'Agendamento'}.pdf`);
+      pdf.save(`Termo_Agendamento_${showReceipt?.id || 'CCBS'}.pdf`);
 
-      showToast('PDF gerado e descarregado com sucesso!', 'success');
+      showToast('PDF descarregado com sucesso!', 'success');
     } catch (err: any) {
-      console.error("Erro detalhado ao gerar o PDF:", err);
-      showToast('Falha na conversão. A abrir janela de impressão...', 'error');
+      console.error("Erro na conversão para PDF:", err);
+      showToast('A abrir caixa de impressão do navegador...', 'info');
       
-      // PLANO B: Se a conversão gráfica falhar, abre a caixa de diálogo do navegador
+      // Fallback automático para a caixa de impressão nativa
       setTimeout(() => {
         window.print();
-      }, 500);
+      }, 400);
     } finally {
       setGeneratingPDF(false);
     }
@@ -429,12 +437,12 @@ export default function App() {
   };
 
   // ==========================================
-  // 6. ESTRUTURA VISUAL (JSX)
+  // 7. ESTRUTURA VISUAL (JSX)
   // ==========================================
   return (
     <div className="min-h-screen bg-slate-100 font-sans text-slate-800 pb-12 flex flex-col print:bg-white print:p-0">
       
-      {/* NOTIFICAÇÃO TOAST */}
+      {/* MENSAGEM DE NOTIFICAÇÃO (TOAST) */}
       {toast && (
         <div className={`fixed bottom-6 right-6 z-[200] px-6 py-3 rounded-2xl shadow-2xl text-white font-bold text-xs uppercase tracking-wider animate-bounce print:hidden ${toast.type === 'error' ? 'bg-red-600' : 'bg-blue-600'}`}>
           {toast.message}
@@ -468,7 +476,7 @@ export default function App() {
       {/* CONTEÚDO PRINCIPAL */}
       <main className="max-w-7xl mx-auto px-4 py-8 grid grid-cols-1 lg:grid-cols-12 gap-8 print:hidden flex-1">
         
-        {/* FORMULÁRIO DE AGENDAMENTO */}
+        {/* FORMULÁRIO DE NOVO AGENDAMENTO */}
         <div className="lg:col-span-4">
           <div className="bg-white rounded-[2rem] shadow-2xl border border-slate-200 overflow-hidden sticky top-24">
             
@@ -535,7 +543,7 @@ export default function App() {
                 <div className="bg-blue-900/5 p-4 rounded-2xl border-2 border-blue-100 mt-4">
                   <div className="flex items-center gap-2 mb-2 text-blue-900">
                     <Lock className="w-3 h-3" />
-                    <span className="text-[10px] font-black uppercase tracking-widest">Segurança</span>
+                    <span className="text-[10px] font-black uppercase tracking-widest">Chave de Segurança</span>
                   </div>
                   <input type="password" name="senha" value={formData.senha} onChange={handleChange} placeholder="Senha p/ Cancelamento e Termo" className="w-full p-3 bg-white border border-blue-200 rounded-xl text-center font-bold tracking-widest text-blue-900 outline-none focus:border-blue-600" />
                 </div>
@@ -548,7 +556,7 @@ export default function App() {
           </div>
         </div>
 
-        {/* CALENDÁRIO E EVENTOS */}
+        {/* CALENDÁRIO DE AGENDAMENTOS */}
         <div className="lg:col-span-8 space-y-6 relative">
           <div className="bg-white rounded-[2.5rem] shadow-xl border border-slate-200 overflow-hidden">
             <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
@@ -560,7 +568,7 @@ export default function App() {
                   <h3 className="text-xl font-black text-slate-800 uppercase tracking-tighter capitalize">
                     {new Intl.DateTimeFormat('pt-BR', { month: 'long', year: 'numeric' }).format(currentDate)}
                   </h3>
-                  <p className="text-[10px] text-slate-400 font-bold uppercase">{reservas.length} Eventos Ativos</p>
+                  <p className="text-[10px] text-slate-400 font-bold uppercase">{reservas.length} Eventos Registados</p>
                 </div>
               </div>
               <div className="flex gap-2">
@@ -679,7 +687,7 @@ export default function App() {
             <div className="bg-red-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-red-600">
               <AlertCircle className="w-7 h-7" />
             </div>
-            <h3 className="text-lg font-black uppercase mb-1">Segurança</h3>
+            <h3 className="text-lg font-black uppercase mb-1">Confirmação</h3>
             <p className="text-slate-500 text-xs mb-6">
               Insira a senha do utilizador ou a senha mestra para cancelar o evento <strong className="text-slate-800">"{showCancelModal.nomeEvento}"</strong>.
             </p>
@@ -712,7 +720,7 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL 2: BUSCA DA 2ª VIA DO TERMO */}
+      {/* MODAL 2: FORMULÁRIO DA 2ª VIA DO TERMO */}
       {showReprintModal && (
         <div className="fixed inset-0 bg-slate-900/95 backdrop-blur-md z-[140] flex items-center justify-center p-4 print:hidden">
           <div className="bg-white rounded-[2rem] p-8 max-w-md w-full shadow-2xl text-center relative">
@@ -729,17 +737,17 @@ export default function App() {
 
             <h3 className="text-xl font-black uppercase text-slate-800 mb-1">Segunda Via do Termo</h3>
             <p className="text-slate-500 text-xs mb-6">
-              Insira os dados do agendamento para recuperar o seu documento.
+              Insira o código do protocolo e a sua senha para recuperar o documento.
             </p>
 
             <div className="space-y-4 text-left mb-6">
               <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase ml-1 block mb-1">Código de Protocolo (ID)</label>
+                <label className="text-[10px] font-black text-slate-400 uppercase ml-1 block mb-1">Código de Protocolo</label>
                 <input 
                   type="text" 
                   value={reprintId} 
                   onChange={(e) => setReprintId(e.target.value)} 
-                  placeholder="EX: A1B2C3D4E" 
+                  placeholder="EX: P55GA8DDG" 
                   className="w-full p-3.5 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold uppercase text-center focus:border-blue-600 outline-none text-sm tracking-wider"
                 />
               </div>
@@ -777,12 +785,12 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL 3: VISUALIZAÇÃO E EMISSÃO DO TERMO */}
+      {/* MODAL 3: EXIBIÇÃO E DESCARREGAMENTO DO TERMO DE AGENDAMENTO */}
       {showReceipt && (
         <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[150] flex items-center justify-center p-4 overflow-y-auto print:p-0 print:bg-white print:static">
           <div className="bg-white rounded-3xl p-6 md:p-8 max-w-2xl w-full shadow-2xl relative my-8 print:shadow-none print:p-0 print:m-0">
             
-            {/* Barra de Ações Superior */}
+            {/* Controlo do Modal */}
             <div className="flex justify-between items-center mb-6 print:hidden">
               <button 
                 onClick={() => setShowReceipt(null)}
@@ -802,10 +810,10 @@ export default function App() {
               </div>
             </div>
 
-            {/* TERMO DE AGENDAMENTO (ELEMENTO CAPTURADO PARA O PDF) */}
+            {/* CONTEÚDO DO TERMO (CAPTURADO PELO HTML2CANVAS) */}
             <div ref={termoRef} className="p-8 bg-white border border-slate-200 rounded-2xl text-slate-800 space-y-6 print:border-none print:p-0">
               
-              {/* Cabeçalho do Termo */}
+              {/* Cabeçalho do Documento */}
               <div className="flex items-center justify-between border-b pb-4 border-slate-200">
                 <div>
                   <h2 className="text-lg font-black text-blue-900 uppercase">Termo de Agendamento</h2>
@@ -817,7 +825,7 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Dados do Agendamento */}
+              {/* Informações da Reserva */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs leading-relaxed text-slate-700 bg-slate-50 p-4 rounded-xl border border-slate-100">
                 <div>
                   <p className="font-bold text-slate-400 text-[10px] uppercase">Evento</p>
@@ -845,7 +853,7 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Normas de Uso */}
+              {/* Normas Gerais */}
               <div className="pt-4 border-t border-slate-200 text-[10px] text-slate-500 space-y-1.5">
                 <p className="font-bold uppercase text-slate-700 mb-1">Normas de Utilização:</p>
                 <p>• O responsável declara-se ciente de que é responsável pela conservação dos equipamentos e estrutura durante o evento.</p>
@@ -858,7 +866,7 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL 4: DESBLOQUEIO DE MODO ADMIN */}
+      {/* MODAL 4: DESBLOQUEIO ADMINISTRATIVO */}
       {showAdminUnlock && (
         <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[140] flex items-center justify-center p-4 print:hidden">
           <div className="bg-white rounded-[2rem] p-8 max-w-sm w-full shadow-2xl text-center">
@@ -866,7 +874,7 @@ export default function App() {
               <Shield className="w-7 h-7" />
             </div>
             <h3 className="text-lg font-black uppercase mb-1">Modo Administrador</h3>
-            <p className="text-slate-500 text-xs mb-6">Insira a Senha Mestra para visualizar dados sigilosos e de contato.</p>
+            <p className="text-slate-500 text-xs mb-6">Insira a Senha Mestra para desbloquear os dados de contato.</p>
             
             <input 
               type="password" 
@@ -894,7 +902,7 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL 5: CENTRAL DE AJUDA */}
+      {/* MODAL 5: AJUDA E DOCUMENTAÇÃO */}
       {showHelpModal && (
         <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[140] flex items-center justify-center p-4 print:hidden">
           <div className="bg-white rounded-[2rem] p-8 max-w-md w-full shadow-2xl text-left relative">
@@ -918,12 +926,12 @@ export default function App() {
             <div className="space-y-4 text-xs text-slate-600 leading-relaxed mb-6">
               <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
                 <p className="font-bold text-slate-800 mb-1">Como emitir a 2ª via do termo?</p>
-                <p>Clique no botão <strong>"2ª Via do Termo"</strong> no cabeçalho superior, introduza o código do protocolo recebido no agendamento e a sua senha.</p>
+                <p>Clique no botão <strong>"2ª Via do Termo"</strong> no topo da página, digite o código do protocolo fornecido e a sua senha cadastrada.</p>
               </div>
 
               <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
                 <p className="font-bold text-slate-800 mb-1">Como cancelar um agendamento?</p>
-                <p>Selecione o dia do evento no calendário, clique no ícone da lixeira ao lado do agendamento e confirme com a sua senha.</p>
+                <p>Selecione o dia do evento no calendário, clique no ícone da lixeira ao lado da reserva e introduza a sua senha.</p>
               </div>
             </div>
 
