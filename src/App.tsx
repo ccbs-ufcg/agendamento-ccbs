@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import html2canvas from 'html2canvas'; // Importação corrigida para a biblioteca padrão
+import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 import { 
   Calendar as CalendarIcon, 
@@ -24,7 +24,8 @@ import {
   CreditCard,
   Search,
   Copy,
-  HelpCircle
+  HelpCircle,
+  QrCode
 } from 'lucide-react';
 
 // Importações oficiais do Firebase
@@ -61,6 +62,18 @@ const HORARIOS = [
 ];
 const MASTER_PASSWORD = 'adminCCBS2026';
 const UFCG_LOGO = 'logo-ufcg.png'; 
+const CCBS_LOGO = 'logo-ccbs.png';
+
+// Função para formatar datas por extenso no documento formal
+function formatarDataExtenso(dataCriacao: string) {
+  if (!dataCriacao) return new Date().toLocaleDateString('pt-BR', { day: 'numeric', month: 'long', year: 'numeric' });
+  const [dataParte] = dataCriacao.split(',');
+  const partes = dataParte.split('/');
+  if (partes.length < 3) return dataCriacao;
+  const [dia, mes, ano] = partes.map(Number);
+  const data = new Date(ano, mes - 1, dia);
+  return data.toLocaleDateString('pt-BR', { day: 'numeric', month: 'long', year: 'numeric' });
+}
 
 export default function App() {
   // --- ESTADOS DE AUTENTICAÇÃO E DADOS ---
@@ -325,42 +338,45 @@ export default function App() {
     }
     
     setGeneratingPDF(true);
+    const originalWidth = elemento.style.width;
+    const originalMaxWidth = elemento.style.maxWidth;
 
     try {
+      elemento.style.width = '800px';
+      elemento.style.maxWidth = '800px';
+
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
       const canvas = await html2canvas(elemento, { 
-        scale: 2,
-        backgroundColor: '#ffffff',
+        scale: 1.5, 
+        backgroundColor: '#ffffff', 
         useCORS: true,
         allowTaint: false,
-        logging: false,
-        scrollX: 0,
-        scrollY: 0,
-        windowWidth: elemento.scrollWidth,
-        windowHeight: elemento.scrollHeight
+        logging: false
       });
       
-      const imgData = canvas.toDataURL('image/png');
+      elemento.style.width = originalWidth;
+      elemento.style.maxWidth = originalMaxWidth;
 
-      const pdf = new jsPDF('p', 'mm', 'a4');
+      const pdf = new jsPDF({
+        orientation: 'p',
+        unit: 'mm',
+        format: 'a4',
+        compress: true 
+      });
+      
       const pageWidth = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
+      const imgData = canvas.toDataURL('image/jpeg', 0.75);
 
-      const margin = 10;
-      const imgWidth = pageWidth - (margin * 2);
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
-      const finalHeight = imgHeight > (pageHeight - (margin * 2)) ? (pageHeight - (margin * 2)) : imgHeight;
-
-      pdf.addImage(imgData, 'PNG', margin, margin, imgWidth, finalHeight);
-      pdf.save(`Termo_Agendamento_${showReceipt?.id || 'CCBS'}.pdf`);
-
+      pdf.addImage(imgData, 'JPEG', 0, 0, pageWidth, pageHeight, undefined, 'FAST');
+      pdf.save(`Termo_${showReceipt?.id || 'CCBS'}.pdf`);
       showToast('PDF descarregado com sucesso!', 'success');
     } catch (err: any) {
       console.error("Erro na conversão para PDF:", err);
-      showToast('A abrir caixa de impressão do navegador...', 'info');
-      
-      setTimeout(() => {
-        window.print();
-      }, 400);
+      elemento.style.width = originalWidth;
+      elemento.style.maxWidth = originalMaxWidth;
+      showToast('Erro ao gerar o arquivo PDF.', 'error');
     } finally {
       setGeneratingPDF(false);
     }
@@ -763,76 +779,105 @@ export default function App() {
         </div>
       )}
 
+      {/* TERMO DE RESPONSABILIDADE FORMAL (MODELO OFICIAL) */}
       {showReceipt && (
-        <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[150] flex items-center justify-center p-4 overflow-y-auto print:p-0 print:bg-white print:static">
-          <div className="bg-white rounded-3xl p-6 md:p-8 max-w-2xl w-full shadow-2xl relative my-8 print:shadow-none print:p-0 print:m-0">
+        <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[100] flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-none md:rounded-[2rem] w-full max-w-3xl shadow-2xl overflow-hidden my-auto">
             
-            <div className="flex justify-between items-center mb-6 print:hidden">
-              <button 
-                onClick={() => setShowReceipt(null)}
-                className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full transition-all"
+            <div className="bg-yellow-100 border-b-2 border-yellow-300 p-4 text-center print:hidden">
+              <p className="text-yellow-800 text-sm font-bold flex items-center justify-center gap-2">
+                <AlertCircle className="w-5 h-5" /> 
+                Atenção: Baixe este termo em PDF, assine digitalmente via GOV.BR (http://assinador.iti.br/) e envie para: reservaccbs@gmail.com
+              </p>
+            </div>
+
+            <div 
+              className="p-10 space-y-8" 
+              ref={termoRef} 
+              style={{ backgroundColor: '#ffffff', color: '#000000', width: '100%' }}
+            >
+              <div className="flex justify-between items-center pb-4" style={{ borderBottom: '1px solid #e2e8f0' }}>
+                 <img src={UFCG_LOGO} alt="UFCG" className="h-14 w-14 object-contain bg-white" />
+                 <div className="text-center flex-1 px-4">
+                   <h2 className="text-[14px] font-bold uppercase tracking-tight text-black leading-tight" style={{ color: '#000000' }}>
+                     UNIVERSIDADE FEDERAL DE CAMPINA GRANDE - UFCG
+                   </h2>
+                   <h3 className="text-[14px] font-bold text-black uppercase leading-normal" style={{ color: '#000000' }}>
+                     CENTRO DE CIÊNCIAS BIOLÓGICAS E DA SAÚDE - CCBS
+                   </h3>
+                   <p className="text-[14px] font-black mt-2 uppercase tracking-wide text-black" style={{ color: '#000000' }}>
+                     TERMO DE RESPONSABILIDADE PARA UTILIZAÇÃO DE ESPAÇO
+                   </p>
+                 </div>
+                 <img src={CCBS_LOGO} alt="CCBS" className="w-[2cm] h-auto object-contain bg-white" />
+              </div>
+
+              <div className="text-xs space-y-4 text-black leading-relaxed" style={{ color: '#000000' }}>
+                <p>
+                  Eu, <strong>{showReceipt.requisitante || showReceipt.requinisitante}</strong>, CPF nº <strong>{showReceipt.cpf}</strong>, 
+                  E-mail: <strong>{showReceipt.email}</strong> e contato: <strong>{showReceipt.telefone}</strong>, 
+                  servidor(a) vinculado(a) à unidade <strong>{showReceipt.setor || 'Não informado'}</strong>, 
+                  na condição de responsável pelo evento <strong>"{showReceipt.nomeEvento}"</strong>, a ser 
+                  realizado no <strong>{showReceipt.auditorio}</strong> do Centro de Ciências Biológicas e da Saúde (CCBS/UFCG), 
+                  no dia <strong>{showReceipt.data ? showReceipt.data.split('-').reverse().join('/') : ''}</strong>, das <strong>{showReceipt.horaInicio}</strong> às <strong>{showReceipt.horaFim} h</strong>, 
+                  assumo integral responsabilidade pela utilização do referido espaço durante o período autorizado.
+                </p>
+
+                <p className="font-bold pt-2">Declaro estar ciente e de acordo com as seguintes condições:</p>
+
+                <div className="space-y-3" style={{ color: '#000000' }}>
+                  <p><strong>CLÁUSULA PRIMEIRA - DA CONSERVAÇÃO DO PATRIMÔNIO:</strong> Comprometo-me a zelar pela conservação das instalações, mobiliários, equipamentos e demais bens patrimoniais existentes no {showReceipt.auditorio} do CCBS, responsabilizando-me por danos decorrentes de uso inadequado, negligência, imprudência ou imperícia dos participantes do evento sob minha responsabilidade.</p>
+                  <p><strong>CLÁUSULA SEGUNDA - DA UTILIZAÇÃO DO ESPAÇO:</strong> Comprometo-me a utilizar o espaço exclusivamente para a finalidade previamente informada e autorizada pela Direção do CCBS, observando as normas institucionais vigentes e as orientações da Administração do Centro.</p>
+                  <p><strong>CLÁUSULA TERCEIRA - DA ORGANIZAÇÃO E LIMPEZA:</strong> Ao término do evento, comprometo-me a entregar o espaço em condições adequadas de organização, conservação e limpeza, preservando a disposição original do mobiliário e dos equipamentos disponibilizados.</p>
+                  <p><strong>CLÁUSULA QUARTA - DOS EQUIPAMENTOS E RECURSOS:</strong> Declaro ter recebido, em perfeito estado de funcionamento, os equipamentos eventualmente disponibilizados para o evento, responsabilizando-me por sua correta utilização e devolução nas mesmas condições iniciais. Ao término do evento comprometo-me a desligar as luzes e aparelhos de ar-condicionado e de informática.</p>
+                  <p><strong>CLÁUSULA QUINTA - DA SEGURANÇA:</strong> Comprometo-me a respeitar a capacidade máxima do local, bem como a não realizar atividades que possam colocar em risco a integridade física dos participantes ou do patrimônio público.</p>
+                  <div>
+                    <strong>CLÁUSULA SEXTA - DAS VEDAÇÕES:</strong> É vedado:
+                    <ul className="list-none pl-4 mt-1 space-y-1">
+                      <li>I - Utilizar o espaço para finalidade diversa da autorizada;</li>
+                      <li>II - Promover atividades que contrariem as normas institucionais da UFCG;</li>
+                      <li>III - Fixar materiais em paredes, portas, janelas, mobiliários ou equipamentos de forma que causem danos ao patrimônio;</li>
+                      <li>IV - Alterar instalações elétricas, de rede, sonorização ou quaisquer outros sistemas sem autorização prévia da Administração do CCBS.</li>
+                    </ul>
+                  </div>
+                  <p><strong>CLÁUSULA SÉTIMA - DAS RESPONSABILIDADES:</strong> O descumprimento das disposições deste Termo poderá implicar a suspensão de futuras autorizações de uso, sem prejuízo da apuração de responsabilidades administrativas, civis e legais cabíveis, bem como da obrigação de ressarcimento ao erário em caso de dano ao patrimônio público.</p>
+                </div>
+
+                <p className="pt-4 text-center">Por estar de acordo com as condições acima estabelecidas, firmo o presente Termo de Responsabilidade.</p>
+
+                <div className="text-center pt-6 space-y-8">
+                  <p>Campina Grande/PB, {formatarDataExtenso(showReceipt.dataCriacao)}</p>
+                  <div className="w-1/2 mx-auto pt-2 mt-12" style={{ borderTop: '1px solid #000000' }}>
+                    <p className="font-bold uppercase text-xs">RESPONSÁVEL PELO EVENTO: {showReceipt.requisitante}</p>
+                    <p className="text-xs">Assinatura Digital GOV.BR</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-8 pt-4 flex justify-between items-center opacity-50" style={{ borderTop: '1px solid #e2e8f0' }}>
+                <div className="flex gap-2 items-center">
+                  <QrCode className="w-8 h-8 text-black" />
+                  <div style={{ color: '#000000' }}>
+                    <p className="text-[8px] font-black uppercase">PROTOCOLO ELETRÔNICO: #{showReceipt.id}</p>
+                    <p className="text-[8px] font-bold">Emitido em: {showReceipt.dataCriacao}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-8 bg-slate-50 flex gap-4 border-t border-slate-200 print:hidden">
+              <button
+                onClick={handleDownloadPDF}
+                disabled={generatingPDF}
+                className="flex-1 py-4 bg-blue-700 text-white font-black rounded-xl flex items-center justify-center gap-2 hover:bg-blue-800 transition-all uppercase tracking-widest text-xs disabled:opacity-50 cursor-pointer"
               >
-                <X className="w-6 h-6" />
+                {generatingPDF ? <Loader2 className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
+                {generatingPDF ? 'Gerando PDF...' : 'Baixar Termo PDF'}
               </button>
-              <div className="flex gap-3">
-                <button
-                  onClick={handleDownloadPDF}
-                  disabled={generatingPDF}
-                  className="bg-blue-600 text-white font-bold text-xs uppercase px-5 py-2.5 rounded-xl shadow hover:bg-blue-700 transition-all flex items-center gap-2 disabled:opacity-50 cursor-pointer"
-                >
-                  {generatingPDF ? <Loader2 className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
-                  {generatingPDF ? 'A Gerar PDF...' : 'Baixar PDF'}
-                </button>
-              </div>
+              <button onClick={() => setShowReceipt(null)} className="px-8 py-4 bg-white border-2 border-slate-200 text-slate-600 font-black rounded-xl hover:bg-slate-100 transition-all uppercase tracking-widest text-xs cursor-pointer">
+                Fechar
+              </button>
             </div>
-
-            <div ref={termoRef} className="p-8 bg-white border border-slate-200 rounded-2xl text-slate-800 space-y-6 print:border-none print:p-0">
-              <div className="flex items-center justify-between border-b pb-4 border-slate-200">
-                <div>
-                  <h2 className="text-lg font-black text-blue-900 uppercase">Termo de Agendamento</h2>
-                  <p className="text-xs text-slate-500 font-bold uppercase">CCBS / UFCG - Campina Grande</p>
-                </div>
-                <div className="text-right">
-                  <span className="text-[10px] font-black text-slate-400 block uppercase">Protocolo</span>
-                  <span className="text-sm font-mono font-black text-blue-600">{showReceipt.id}</span>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs leading-relaxed text-slate-700 bg-slate-50 p-4 rounded-xl border border-slate-100">
-                <div>
-                  <p className="font-bold text-slate-400 text-[10px] uppercase">Evento</p>
-                  <p className="font-black text-slate-800 text-sm">{showReceipt.nomeEvento}</p>
-                </div>
-                <div>
-                  <p className="font-bold text-slate-400 text-[10px] uppercase">Local Reservado</p>
-                  <p className="font-bold text-blue-700">{showReceipt.auditorio}</p>
-                </div>
-                <div>
-                  <p className="font-bold text-slate-400 text-[10px] uppercase">Data e Horário</p>
-                  <p className="font-bold">{showReceipt.data ? showReceipt.data.split('-').reverse().join('/') : ''} ({showReceipt.horaInicio} às {showReceipt.horaFim})</p>
-                </div>
-                <div>
-                  <p className="font-bold text-slate-400 text-[10px] uppercase">Responsável</p>
-                  <p className="font-bold">{showReceipt.requisitante}</p>
-                </div>
-                <div>
-                  <p className="font-bold text-slate-400 text-[10px] uppercase">CPF / Setor</p>
-                  <p>{showReceipt.cpf} - {showReceipt.setor}</p>
-                </div>
-                <div>
-                  <p className="font-bold text-slate-400 text-[10px] uppercase">Contato</p>
-                  <p>{showReceipt.email} | {showReceipt.telefone}</p>
-                </div>
-              </div>
-
-              <div className="pt-4 border-t border-slate-200 text-[10px] text-slate-500 space-y-1.5">
-                <p className="font-bold uppercase text-slate-700 mb-1">Normas de Utilização:</p>
-                <p>• O responsável declara-se ciente de que é responsável pela conservação dos equipamentos e estrutura durante o evento.</p>
-                <p>• Em caso de cancelamento, utilizar a chave de segurança cadastrada diretamente na plataforma.</p>
-                <p className="pt-2 text-[9px] text-slate-400">Emissão realizada em: {showReceipt.dataCriacao || new Date().toLocaleString('pt-BR')}</p>
-              </div>
-            </div>
-
           </div>
         </div>
       )}
