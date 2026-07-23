@@ -64,6 +64,7 @@ const UFCG_LOGO = 'logo-ufcg.png';
 const CCBS_LOGO = 'logo-ccbs.png';
 
 function formatarDataExtenso(dataCriacao: string) {
+  if (!dataCriacao) return '';
   const [dataParte] = dataCriacao.split(',');
   const [dia, mes, ano] = dataParte.split('/').map(Number);
   const data = new Date(ano, mes - 1, dia);
@@ -75,26 +76,27 @@ export default function App() {
   const [reservas, setReservas] = useState<any[]>([]);
   const [toast, setToast] = useState<{message: string, type: string} | null>(null);
 
-  // CORREÇÃO: Declaração correta do estado do Modal de Cancelamento
+  // Estados dos Modais
   const [showCancelModal, setShowCancelModal] = useState<any>(null);
-
   const [showReceipt, setShowReceipt] = useState<any>(null);
   const [showAdminUnlock, setShowAdminUnlock] = useState(false);
+  const [showReprintModal, setShowReprintModal] = useState(false);
+  const [showHelpModal, setShowHelpModal] = useState(false); 
+
+  // Estados de Formulários e Segurança
   const [cancelPassword, setCancelPassword] = useState('');
   const [adminUnlockPassword, setAdminUnlockPassword] = useState('');
+  const [reprintId, setReprintId] = useState('');
+  const [reprintPassword, setReprintPassword] = useState('');
+
+  // Estados de Controle de Interface
   const [loading, setLoading] = useState(true);
   const [generatingPDF, setGeneratingPDF] = useState(false);
+  const [loadingSecondCopy, setLoadingSecondCopy] = useState(false);
   const [isAdminMode, setIsAdminMode] = useState(false);
   
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDayReservas, setSelectedDayReservas] = useState<{date: string, items: any[]} | null>(null);
-
-  // Estados para Segunda Via e Central de Ajuda
-  const [showReprintModal, setShowReprintModal] = useState(false);
-  const [showHelpModal, setShowHelpModal] = useState(false); 
-  const [reprintId, setReprintId] = useState('');
-  const [reprintPassword, setReprintPassword] = useState('');
-  const [loadingSecondCopy, setLoadingSecondCopy] = useState(false);
 
   // REFERÊNCIA DO PDF
   const termoRef = useRef<HTMLDivElement>(null);
@@ -113,7 +115,7 @@ export default function App() {
     senha: ''
   });
 
-  // 1. Inicialização e Autenticação
+  // 1. Inicialização e Autenticação no Firebase
   useEffect(() => {
     if (!auth) {
       setLoading(false);
@@ -139,14 +141,14 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // 2. Escuta em Tempo Real do Banco de Dados
+  // 2. Escuta em Tempo Real das Reservas
   useEffect(() => {
     if (!user || !db) return;
     const reservasRef = collection(db, 'artifacts', appId as string, 'public', 'data', 'reservas_ccbs');
     
     const unsubscribe = onSnapshot(reservasRef, (snapshot) => {
       const lista = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setReservas(lista.sort((a, b) => a.data.localeCompare(b.data) || a.horaInicio.localeCompare(b.horaInicio)));
+      setReservas(lista.sort((a: any, b: any) => a.data.localeCompare(b.data) || a.horaInicio.localeCompare(b.horaInicio)));
     }, (error) => {
       console.error("Erro ao sincronizar Firestore:", error);
     });
@@ -227,14 +229,12 @@ export default function App() {
     }
   };
 
-  // CORREÇÃO: Função de confirmação do cancelamento corrigida e tratada
   const confirmCancelation = async () => {
     if (!showCancelModal) return;
 
     const inputSenha = cancelPassword.trim();
     const senhaReserva = showCancelModal.senha ? showCancelModal.senha.trim() : '';
 
-    // Valida se a senha digitada é a senha do evento OU a senha mestra
     if (inputSenha === senhaReserva || inputSenha === MASTER_PASSWORD) {
       try {
         if (!db) {
@@ -242,7 +242,6 @@ export default function App() {
           return;
         }
         
-        // Acessa o id correto do documento no Firestore
         const docRef = doc(db, 'artifacts', appId as string, 'public', 'data', 'reservas_ccbs', showCancelModal.id);
         await deleteDoc(docRef);
         
@@ -270,6 +269,7 @@ export default function App() {
     }
   };
 
+  // 3. Função Corrigida para Buscar e Gerar a Segunda Via
   const handleFetchSecondCopy = async () => {
     if (!reprintId || !reprintPassword) {
       showToast('Insira o Protocolo e a Senha!', 'error');
@@ -277,12 +277,23 @@ export default function App() {
     }
     setLoadingSecondCopy(true);
     try {
-      const docRef = doc(db, 'artifacts', appId as string, 'public', 'data', 'reservas_ccbs', reprintId.toUpperCase().trim());
-      const docSnap = await getDoc(docRef);
+      const idBuscado = reprintId.toUpperCase().trim();
+      const senhaBuscada = reprintPassword.trim();
 
-      if (docSnap.exists()) {
-        const dadosReserva = docSnap.data();
-        if (reprintPassword.trim() === dadosReserva.senha || reprintPassword.trim() === MASTER_PASSWORD) {
+      // Procura primeiro no estado local
+      let dadosReserva = reservas.find(r => r.id === idBuscado);
+
+      // Se não encontrar localmente, realiza a busca direta no Firestore
+      if (!dadosReserva && db) {
+        const docRef = doc(db, 'artifacts', appId as string, 'public', 'data', 'reservas_ccbs', idBuscado);
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          dadosReserva = docSnap.data();
+        }
+      }
+
+      if (dadosReserva) {
+        if (senhaBuscada === dadosReserva.senha || senhaBuscada === MASTER_PASSWORD) {
           setShowReceipt(dadosReserva);
           setShowReprintModal(false);
           setReprintId('');
@@ -295,8 +306,8 @@ export default function App() {
         showToast('Protocolo não encontrado.', 'error');
       }
     } catch (err) {
-      console.error(err);
-      showToast('Erro ao buscar dados.', 'error');
+      console.error("Erro ao procurar termo:", err);
+      showToast('Erro ao buscar dados do servidor.', 'error');
     } finally {
       setLoadingSecondCopy(false);
     }
@@ -413,6 +424,13 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-100 font-sans text-slate-800 pb-12 flex flex-col print:bg-white print:p-0">
       
+      {/* MENSAGEM TOAST */}
+      {toast && (
+        <div className={`fixed bottom-6 right-6 z-[200] px-6 py-3 rounded-2xl shadow-2xl text-white font-bold text-xs uppercase tracking-wider animate-bounce ${toast.type === 'error' ? 'bg-red-600' : 'bg-blue-600'}`}>
+          {toast.message}
+        </div>
+      )}
+
       {/* CABEÇALHO */}
       <header className="bg-blue-700 text-white shadow-xl sticky top-0 z-30 print:hidden">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
@@ -506,9 +524,9 @@ export default function App() {
                 <div className="bg-blue-900/5 p-4 rounded-2xl border-2 border-blue-100 mt-4">
                   <div className="flex items-center gap-2 mb-2 text-blue-900">
                     <Lock className="w-3 h-3" />
-                    <span className="text-[10px] font-black uppercase tracking-widest">Security</span>
+                    <span className="text-[10px] font-black uppercase tracking-widest">Segurança</span>
                   </div>
-                  <input type="password" name="senha" value={formData.senha} onChange={handleChange} placeholder="Senha p/ Cancelamento" className="w-full p-3 bg-white border border-blue-200 rounded-xl text-center font-bold tracking-widest text-blue-900 outline-none focus:border-blue-600" />
+                  <input type="password" name="senha" value={formData.senha} onChange={handleChange} placeholder="Senha p/ Cancelamento e Termo" className="w-full p-3 bg-white border border-blue-200 rounded-xl text-center font-bold tracking-widest text-blue-900 outline-none focus:border-blue-600" />
                 </div>
               </div>
 
@@ -555,7 +573,7 @@ export default function App() {
             </div>
           </div>
 
-          {/* DETALHES DO DIA */}
+          {/* DETALHES DO DIA SELECIONADO */}
           {selectedDayReservas && (
             <div className="bg-slate-900 rounded-[2rem] p-8 text-white shadow-2xl animate-in slide-in-from-right duration-500 relative overflow-hidden">
                <div className="absolute top-0 right-0 w-32 h-32 bg-blue-600/10 rounded-full -mr-16 -mt-16 blur-3xl"></div>
@@ -586,7 +604,6 @@ export default function App() {
                          <span className="text-[10px] font-bold text-blue-300 uppercase">{res.horaInicio} - {res.horaFim}</span>
                        </div>
                        
-                       {/* CORREÇÃO: Invocando setShowCancelModal(res) corretamente ao clicar na lixeira */}
                        <button onClick={() => setShowCancelModal(res)} className="p-2 bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white rounded-lg transition-all" title="Cancelar este agendamento">
                          <Trash2 className="w-4 h-4" />
                        </button>
@@ -680,49 +697,64 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL: SEGUNDA VIA */}
+      {/* MODAL 1: BUSCA DA 2ª VIA DO TERMO */}
       {showReprintModal && (
-        <div className="fixed inset-0 bg-slate-900/95 backdrop-blur-md z-[130] flex items-center justify-center p-4 print:hidden">
-          <div className="bg-white rounded-[2rem] p-8 max-w-sm w-full shadow-2xl text-center">
+        <div className="fixed inset-0 bg-slate-900/95 backdrop-blur-md z-[140] flex items-center justify-center p-4 print:hidden">
+          <div className="bg-white rounded-[2rem] p-8 max-w-md w-full shadow-2xl text-center relative">
+            <button 
+              onClick={() => { setShowReprintModal(false); setReprintId(''); setReprintPassword(''); }}
+              className="absolute top-6 right-6 p-2 text-slate-400 hover:text-slate-600 rounded-full transition-all"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
             <div className="bg-blue-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-blue-600">
               <Search className="w-7 h-7" />
             </div>
-            <h3 className="text-lg font-black uppercase mb-1">Segunda Via do Termo</h3>
-            <p className="text-slate-500 text-xs mb-6">Insira os dados do agendamento para recuperar o seu documento.</p>
-            
-            <div className="space-y-3 text-left mb-6">
+
+            <h3 className="text-xl font-black uppercase text-slate-800 mb-1">Segunda Via do Termo</h3>
+            <p className="text-slate-500 text-xs mb-6">
+              Insira os dados do agendamento para recuperar o seu documento.
+            </p>
+
+            <div className="space-y-4 text-left mb-6">
               <div>
-                <label className="text-[9px] font-black text-slate-400 uppercase ml-1">Código de Protocolo (ID)</label>
+                <label className="text-[10px] font-black text-slate-400 uppercase ml-1 block mb-1">Código de Protocolo (ID)</label>
                 <input 
                   type="text" 
                   value={reprintId} 
                   onChange={(e) => setReprintId(e.target.value)} 
-                  className="w-full p-3.5 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold uppercase focus:border-blue-500 outline-none text-center"
                   placeholder="EX: A1B2C3D4E" 
+                  className="w-full p-3.5 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold uppercase text-center focus:border-blue-600 outline-none text-sm tracking-wider"
                 />
               </div>
+
               <div>
-                <label className="text-[9px] font-black text-slate-400 uppercase ml-1">Senha do Utilizador</label>
+                <label className="text-[10px] font-black text-slate-400 uppercase ml-1 block mb-1">Senha do Utilizador</label>
                 <input 
                   type="password" 
                   value={reprintPassword} 
                   onChange={(e) => setReprintPassword(e.target.value)} 
-                  className="w-full p-3.5 bg-slate-50 border-2 border-slate-100 rounded-xl font-black tracking-widest focus:border-blue-500 outline-none text-center"
                   placeholder="••••••••" 
+                  className="w-full p-3.5 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold text-center focus:border-blue-600 outline-none text-sm tracking-widest"
                 />
               </div>
             </div>
 
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-3">
               <button 
                 onClick={handleFetchSecondCopy} 
                 disabled={loadingSecondCopy}
-                className="w-full py-4 bg-blue-600 text-white font-black rounded-xl uppercase tracking-widest text-[10px] hover:bg-blue-700 shadow-md shadow-blue-500/20 transition-all flex items-center justify-center gap-2"
+                className="w-full py-4 bg-blue-600 text-white font-black rounded-xl uppercase tracking-widest text-xs hover:bg-blue-700 shadow-lg shadow-blue-500/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
               >
                 {loadingSecondCopy ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
-                {loadingSecondCopy ? 'Buscando...' : 'Buscar e Gerar Termo'}
+                {loadingSecondCopy ? 'A procurar...' : 'Buscar e Gerar Termo'}
               </button>
-              <button onClick={() => { setShowReprintModal(false); setReprintId(''); setReprintPassword(''); }} className="py-2 text-slate-400 font-bold uppercase text-[9px] hover:text-slate-600">
+
+              <button 
+                onClick={() => { setShowReprintModal(false); setReprintId(''); setReprintPassword(''); }} 
+                className="py-2 text-slate-400 font-bold uppercase text-[10px] hover:text-slate-600 transition-all"
+              >
                 Voltar
               </button>
             </div>
@@ -730,12 +762,166 @@ export default function App() {
         </div>
       )}
 
-      {/* TOAST FEEDBACK */}
-      {toast && (
-        <div className={`fixed bottom-6 right-6 px-6 py-4 rounded-2xl shadow-2xl text-white font-bold text-xs uppercase tracking-widest z-[150] flex items-center gap-3 animate-in fade-in slide-in-from-bottom-5 duration-300 ${toast.type === 'error' ? 'bg-red-600' : toast.type === 'info' ? 'bg-amber-600' : 'bg-emerald-600'}`}>
-          <span>{toast.message}</span>
+      {/* MODAL 2: EXIBIÇÃO E IMPRESSÃO DO TERMO (RECEIPT & PDF) */}
+      {showReceipt && (
+        <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[150] flex items-center justify-center p-4 overflow-y-auto print:p-0 print:bg-white print:static">
+          <div className="bg-white rounded-3xl p-6 md:p-8 max-w-2xl w-full shadow-2xl relative my-8 print:shadow-none print:p-0 print:m-0">
+            
+            {/* Barra Superior do Modal */}
+            <div className="flex justify-between items-center mb-6 print:hidden">
+              <button 
+                onClick={() => setShowReceipt(null)}
+                className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full transition-all"
+              >
+                <X className="w-6 h-6" />
+              </button>
+              <div className="flex gap-3">
+                <button
+                  onClick={handleDownloadPDF}
+                  disabled={generatingPDF}
+                  className="bg-blue-600 text-white font-bold text-xs uppercase px-5 py-2.5 rounded-xl shadow hover:bg-blue-700 transition-all flex items-center gap-2 disabled:opacity-50 cursor-pointer"
+                >
+                  {generatingPDF ? <Loader2 className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
+                  {generatingPDF ? 'A Gerar PDF...' : 'Baixar PDF'}
+                </button>
+              </div>
+            </div>
+
+            {/* TERMO DE AGENDAMENTO (ELEMENTO CAPTURADO PELO HTML2CANVAS) */}
+            <div ref={termoRef} className="p-8 bg-white border border-slate-200 rounded-2xl text-slate-800 space-y-6 print:border-none print:p-0">
+              
+              {/* Cabeçalho do Documento */}
+              <div className="flex items-center justify-between border-b pb-4 border-slate-200">
+                <div>
+                  <h2 className="text-lg font-black text-blue-900 uppercase">Termo de Agendamento</h2>
+                  <p className="text-xs text-slate-500 font-bold uppercase">CCBS / UFCG - Campina Grande</p>
+                </div>
+                <div className="text-right">
+                  <span className="text-[10px] font-black text-slate-400 block uppercase">Protocolo</span>
+                  <span className="text-sm font-mono font-black text-blue-600">{showReceipt.id}</span>
+                </div>
+              </div>
+
+              {/* Informações do Agendamento */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs leading-relaxed text-slate-700 bg-slate-50 p-4 rounded-xl border border-slate-100">
+                <div>
+                  <p className="font-bold text-slate-400 text-[10px] uppercase">Evento</p>
+                  <p className="font-black text-slate-800 text-sm">{showReceipt.nomeEvento}</p>
+                </div>
+                <div>
+                  <p className="font-bold text-slate-400 text-[10px] uppercase">Local Reservado</p>
+                  <p className="font-bold text-blue-700">{showReceipt.auditorio}</p>
+                </div>
+                <div>
+                  <p className="font-bold text-slate-400 text-[10px] uppercase">Data e Horário</p>
+                  <p className="font-bold">{showReceipt.data ? showReceipt.data.split('-').reverse().join('/') : ''} ({showReceipt.horaInicio} às {showReceipt.horaFim})</p>
+                </div>
+                <div>
+                  <p className="font-bold text-slate-400 text-[10px] uppercase">Responsável</p>
+                  <p className="font-bold">{showReceipt.requisitante}</p>
+                </div>
+                <div>
+                  <p className="font-bold text-slate-400 text-[10px] uppercase">CPF / Setor</p>
+                  <p>{showReceipt.cpf} - {showReceipt.setor}</p>
+                </div>
+                <div>
+                  <p className="font-bold text-slate-400 text-[10px] uppercase">Contato</p>
+                  <p>{showReceipt.email} | {showReceipt.telefone}</p>
+                </div>
+              </div>
+
+              {/* Normas e Condições */}
+              <div className="pt-4 border-t border-slate-200 text-[10px] text-slate-500 space-y-1.5">
+                <p className="font-bold uppercase text-slate-700 mb-1">Normas de Utilização:</p>
+                <p>• O responsável declara-se ciente de que é responsável pela conservação dos equipamentos e estrutura durante o evento.</p>
+                <p>• Em caso de cancelamento, utilizar a chave de segurança cadastrada diretamente na plataforma.</p>
+                <p className="pt-2 text-[9px] text-slate-400">Emissão realizada em: {showReceipt.dataCriacao || new Date().toLocaleString('pt-BR')}</p>
+              </div>
+            </div>
+
+          </div>
         </div>
       )}
+
+      {/* MODAL 3: MODO ADMINISTRADOR */}
+      {showAdminUnlock && (
+        <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[140] flex items-center justify-center p-4 print:hidden">
+          <div className="bg-white rounded-[2rem] p-8 max-w-sm w-full shadow-2xl text-center">
+            <div className="bg-amber-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-amber-600">
+              <Shield className="w-7 h-7" />
+            </div>
+            <h3 className="text-lg font-black uppercase mb-1">Modo Administrador</h3>
+            <p className="text-slate-500 text-xs mb-6">Insira a Senha Mestra para visualizar dados sigilosos e de contato.</p>
+            
+            <input 
+              type="password" 
+              value={adminUnlockPassword} 
+              onChange={(e) => setAdminUnlockPassword(e.target.value)} 
+              placeholder="Senha Mestra" 
+              className="w-full p-3.5 bg-slate-50 border-2 border-slate-100 rounded-xl font-black text-center focus:border-amber-500 outline-none mb-4"
+            />
+
+            <div className="flex flex-col gap-2">
+              <button 
+                onClick={handleAdminUnlock} 
+                className="w-full py-4 bg-amber-600 text-white font-black rounded-xl uppercase tracking-widest text-[10px] hover:bg-amber-700 transition-all"
+              >
+                Acessar Dados
+              </button>
+              <button 
+                onClick={() => { setShowAdminUnlock(false); setAdminUnlockPassword(''); }} 
+                className="py-2 text-slate-400 font-bold uppercase text-[9px]"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 4: CENTRAL DE AJUDA */}
+      {showHelpModal && (
+        <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[140] flex items-center justify-center p-4 print:hidden">
+          <div className="bg-white rounded-[2rem] p-8 max-w-md w-full shadow-2xl text-left relative">
+            <button 
+              onClick={() => setShowHelpModal(false)}
+              className="absolute top-6 right-6 p-2 text-slate-400 hover:text-slate-600 rounded-full transition-all"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-3 mb-4">
+              <div className="bg-blue-100 p-3 rounded-2xl text-blue-700">
+                <HelpCircle className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-lg font-black uppercase text-slate-800">Central de Ajuda</h3>
+                <p className="text-xs text-slate-400 font-bold">Sistema de Reservas CCBS</p>
+              </div>
+            </div>
+
+            <div className="space-y-4 text-xs text-slate-600 leading-relaxed mb-6">
+              <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                <p className="font-bold text-slate-800 mb-1">Como emitir a 2ª via do termo?</p>
+                <p>Clique no botão <strong>"2ª Via do Termo"</strong> no cabeçalho superior, introduza o código do protocolo recebido no agendamento e a sua senha.</p>
+              </div>
+
+              <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                <p className="font-bold text-slate-800 mb-1">Como cancelar um agendamento?</p>
+                <p>Selecione o dia do evento no calendário, clique no ícone da lixeira ao lado do agendamento e confirme com a sua senha.</p>
+              </div>
+            </div>
+
+            <button 
+              onClick={() => setShowHelpModal(false)} 
+              className="w-full py-3.5 bg-slate-800 text-white font-black rounded-xl uppercase tracking-widest text-[10px] hover:bg-slate-900 transition-all text-center"
+            >
+              Entendido
+            </button>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
