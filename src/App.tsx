@@ -114,7 +114,7 @@ export default function App() {
   // 3. EFEITOS (AUTENTICAÇÃO E FIRESTORE)
   // ==========================================
 
-  // Efeito 1: Autenticação inicial no Firebase
+  // Autenticação inicial no Firebase
   useEffect(() => {
     if (!auth) {
       setLoading(false);
@@ -140,14 +140,13 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // Efeito 2: Escuta em tempo real da coleção de agendamentos no Firestore
+  // Escuta em tempo real da coleção de agendamentos no Firestore
   useEffect(() => {
     if (!user || !db) return;
     const reservasRef = collection(db, 'artifacts', appId as string, 'public', 'data', 'reservas_ccbs');
     
     const unsubscribe = onSnapshot(reservasRef, (snapshot) => {
       const lista = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      // Ordena por data e hora de início
       setReservas(lista.sort((a: any, b: any) => a.data.localeCompare(b.data) || a.horaInicio.localeCompare(b.horaInicio)));
     }, (error) => {
       console.error("Erro ao sincronizar Firestore:", error);
@@ -160,17 +159,14 @@ export default function App() {
   // 4. FUNÇÕES DE SUPORTE E MANIPULAÇÃO
   // ==========================================
 
-  // Exibe alertas temporários (Toast)
   const showToast = (message: string, type = 'success') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3000);
   };
 
-  // Atualiza os campos do formulário de criação
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     
-    // Validação de dias úteis
     if (name === 'data') {
       const d = new Date(value + 'T12:00:00');
       if (d.getDay() === 0 || d.getDay() === 6) {
@@ -179,7 +175,6 @@ export default function App() {
       }
     }
     
-    // Bloqueio temporário da Sala de Reunião
     if (name === 'auditorio' && value === 'SALA DE REUNIÃO') {
       showToast('A Sala de Reunião está temporariamente indisponível!', 'error');
       return;
@@ -187,7 +182,6 @@ export default function App() {
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
-  // Submissão do novo agendamento
   const handleBooking = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -201,7 +195,6 @@ export default function App() {
       return;
     }
 
-    // Validação de choque de horários no mesmo local
     const conflito = reservas.find(r => 
       r.auditorio === formData.auditorio && 
       r.data === formData.data && 
@@ -214,7 +207,6 @@ export default function App() {
       return;
     }
 
-    // Criação do ID único (Protocolo)
     const id = Math.random().toString(36).substr(2, 9).toUpperCase();
     const novaReserva = { 
       ...formData, 
@@ -233,7 +225,6 @@ export default function App() {
       setShowReceipt(novaReserva);
       showToast('Sucesso! Reserva realizada.');
       
-      // Limpa o formulário
       setFormData({ 
         auditorio: AUDITORIOS[0], data: '', horaInicio: '07:00', horaFim: '08:00', 
         nomeEvento: '', requisitante: '', cpf: '', email: '', telefone: '', setor: '', senha: '' 
@@ -244,7 +235,6 @@ export default function App() {
     }
   };
 
-  // Cancelamento de agendamento mediante senha
   const confirmCancelation = async () => {
     if (!showCancelModal) return;
 
@@ -274,7 +264,6 @@ export default function App() {
     }
   };
 
-  // Ativação do Modo Administrador
   const handleAdminUnlock = () => {
     if (adminUnlockPassword.trim() === MASTER_PASSWORD) {
       setIsAdminMode(true);
@@ -286,7 +275,6 @@ export default function App() {
     }
   };
 
-  // Busca de 2ª Via do Termo por Protocolo e Senha
   const handleFetchSecondCopy = async () => {
     if (!reprintId || !reprintPassword) {
       showToast('Insira o Protocolo e a Senha!', 'error');
@@ -297,10 +285,8 @@ export default function App() {
       const idBuscado = reprintId.toUpperCase().trim();
       const senhaBuscada = reprintPassword.trim();
 
-      // Busca na memória local
       let dadosReserva = reservas.find(r => r.id === idBuscado);
 
-      // Se não estiver na memória, busca diretamente no Firestore
       if (!dadosReserva && db) {
         const docRef = doc(db, 'artifacts', appId as string, 'public', 'data', 'reservas_ccbs', idBuscado);
         const docSnap = await getDoc(docRef);
@@ -331,7 +317,7 @@ export default function App() {
   };
 
   // ==========================================
-  // 5. FUNÇÃO CORRIGIDA DE GERAÇÃO DO PDF
+  // 5. FUNÇÃO CORRIGIDA E SEGURA DE GERAR PDF
   // ==========================================
   const handleDownloadPDF = async () => {
     const elemento = termoRef.current;
@@ -342,65 +328,50 @@ export default function App() {
     
     setGeneratingPDF(true);
 
-    // Salva as dimensões originais do elemento HTML
-    const originalWidth = elemento.style.width;
-    const originalMaxWidth = elemento.style.maxWidth;
-
     try {
-      // 1. Ajusta temporariamente a largura para garantir proporção
-      elemento.style.width = '750px';
-      elemento.style.maxWidth = '750px';
-
-      // Aguarda 250ms para a re-renderização da tela
-      await new Promise((resolve) => setTimeout(resolve, 250));
-
-      // 2. Captura o elemento usando html2canvas com parâmetros de estabilidade
+      // 1. Captura o HTML com opções compatíveis de segurança
       const canvas = await html2canvas(elemento, { 
-        scale: 2,                  // Duplica a resolução gráfica
-        backgroundColor: '#ffffff', // Garante fundo branco sólido
-        useCORS: true,             // Tenta carregar imagens externas via CORS
-        allowTaint: true,          // Permite inclusão de SVGs e recursos locais
+        scale: 2,                   // Alta resolução gráfica
+        backgroundColor: '#ffffff',  // Fundo branco limpo
+        useCORS: true,              // Permite carregar imagens CORS
+        allowTaint: false,          // CORREÇÃO: Deve ser 'false' para não bloquear o canvas.toDataURL()
+        logging: false,
         scrollX: 0,
-        scrollY: -window.scrollY,  // Elimina o deslocamento causado pelo scroll da página
-        logging: false
+        scrollY: 0
       });
       
-      // Restaura o tamanho original na tela
-      elemento.style.width = originalWidth;
-      elemento.style.maxWidth = originalMaxWidth;
-
-      // 3. Exporta para formato de imagem PNG (evita erros de conversão do JPEG)
+      // 2. Converte o canvas para imagem em formato PNG
       const imgData = canvas.toDataURL('image/png');
 
-      // 4. Cria o documento PDF no formato A4 (210mm x 297mm)
+      // 3. Instancia o documento PDF no formato A4 (210mm x 297mm)
       const pdf = new jsPDF('p', 'mm', 'a4');
       const pageWidth = pdf.internal.pageSize.getWidth();   // 210 mm
       const pageHeight = pdf.internal.pageSize.getHeight(); // 297 mm
 
-      // Calcula a altura proporcional para não distorcer o conteúdo
-      const imgWidth = pageWidth;
+      // Margens e cálculo de proporção
+      const margin = 10;
+      const imgWidth = pageWidth - (margin * 2);
       const imgHeight = (canvas.height * imgWidth) / canvas.width;
-      const finalHeight = imgHeight > pageHeight ? pageHeight : imgHeight;
+      const finalHeight = imgHeight > (pageHeight - (margin * 2)) ? (pageHeight - (margin * 2)) : imgHeight;
 
-      // Adiciona a imagem ao PDF e inicia o download
-      pdf.addImage(imgData, 'PNG', 0, 0, imgWidth, finalHeight, undefined, 'FAST');
+      // 4. Adiciona a imagem e salva o ficheiro PDF
+      pdf.addImage(imgData, 'PNG', margin, margin, imgWidth, finalHeight);
       pdf.save(`Termo_${showReceipt?.id || 'Agendamento'}.pdf`);
 
-      showToast('PDF descarregado com sucesso!', 'success');
+      showToast('PDF gerado e descarregado com sucesso!', 'success');
     } catch (err: any) {
       console.error("Erro detalhado ao gerar o PDF:", err);
+      showToast('Falha na conversão. A abrir janela de impressão...', 'error');
       
-      // Restaura o estilo do elemento em caso de falha
-      elemento.style.width = originalWidth;
-      elemento.style.maxWidth = originalMaxWidth;
-      
-      showToast('Erro ao processar o arquivo PDF.', 'error');
+      // PLANO B: Se a conversão gráfica falhar, abre a caixa de diálogo do navegador
+      setTimeout(() => {
+        window.print();
+      }, 500);
     } finally {
       setGeneratingPDF(false);
     }
   };
 
-  // Cores indicativas por local
   const obterCorLocal = (local: string) => {
     if (local === 'AUDITÓRIO') return 'bg-blue-600';
     if (local === 'SALA DE REUNIÃO') return 'bg-cyan-500';
@@ -408,13 +379,11 @@ export default function App() {
     return 'bg-slate-600';
   };
 
-  // Copia o código de protocolo para a área de transferência
   const copiarParaTransferencia = (texto: string) => {
     navigator.clipboard.writeText(texto);
     showToast('Código de protocolo copiado! 📋');
   };
 
-  // Renderizador das células do Calendário
   const renderCalendar = () => {
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
@@ -467,7 +436,7 @@ export default function App() {
       
       {/* NOTIFICAÇÃO TOAST */}
       {toast && (
-        <div className={`fixed bottom-6 right-6 z-[200] px-6 py-3 rounded-2xl shadow-2xl text-white font-bold text-xs uppercase tracking-wider animate-bounce ${toast.type === 'error' ? 'bg-red-600' : 'bg-blue-600'}`}>
+        <div className={`fixed bottom-6 right-6 z-[200] px-6 py-3 rounded-2xl shadow-2xl text-white font-bold text-xs uppercase tracking-wider animate-bounce print:hidden ${toast.type === 'error' ? 'bg-red-600' : 'bg-blue-600'}`}>
           {toast.message}
         </div>
       )}
@@ -499,7 +468,7 @@ export default function App() {
       {/* CONTEÚDO PRINCIPAL */}
       <main className="max-w-7xl mx-auto px-4 py-8 grid grid-cols-1 lg:grid-cols-12 gap-8 print:hidden flex-1">
         
-        {/* COLUNA DA ESQUERDA: FORMULÁRIO DE AGENDAMENTO */}
+        {/* FORMULÁRIO DE AGENDAMENTO */}
         <div className="lg:col-span-4">
           <div className="bg-white rounded-[2rem] shadow-2xl border border-slate-200 overflow-hidden sticky top-24">
             
@@ -579,7 +548,7 @@ export default function App() {
           </div>
         </div>
 
-        {/* COLUNA DA DIREITA: CALENDÁRIO E EVENTOS */}
+        {/* CALENDÁRIO E EVENTOS */}
         <div className="lg:col-span-8 space-y-6 relative">
           <div className="bg-white rounded-[2.5rem] shadow-xl border border-slate-200 overflow-hidden">
             <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
@@ -703,7 +672,7 @@ export default function App() {
           MODAIS AUXILIARES
          ========================================== */}
 
-      {/* MODAL 1: REMOVER AGENDAMENTO (CANCELAMENTO) */}
+      {/* MODAL 1: CANCELAMENTO */}
       {showCancelModal && (
         <div className="fixed inset-0 bg-slate-900/95 backdrop-blur-md z-[130] flex items-center justify-center p-4 print:hidden">
           <div className="bg-white rounded-[2rem] p-8 max-w-sm w-full shadow-2xl text-center">
@@ -808,7 +777,7 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL 3: VISUALIZAÇÃO E IMPRESSÃO DO TERMO (PDF) */}
+      {/* MODAL 3: VISUALIZAÇÃO E EMISSÃO DO TERMO */}
       {showReceipt && (
         <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[150] flex items-center justify-center p-4 overflow-y-auto print:p-0 print:bg-white print:static">
           <div className="bg-white rounded-3xl p-6 md:p-8 max-w-2xl w-full shadow-2xl relative my-8 print:shadow-none print:p-0 print:m-0">
@@ -833,7 +802,7 @@ export default function App() {
               </div>
             </div>
 
-            {/* TERMO DE AGENDAMENTO (ELEMENTO CAPTURADO PELO HTML2CANVAS) */}
+            {/* TERMO DE AGENDAMENTO (ELEMENTO CAPTURADO PARA O PDF) */}
             <div ref={termoRef} className="p-8 bg-white border border-slate-200 rounded-2xl text-slate-800 space-y-6 print:border-none print:p-0">
               
               {/* Cabeçalho do Termo */}
