@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
-import emailjs from '@emailjs/browser'; // Importação da biblioteca de e-mails
+import emailjs from '@emailjs/browser';
 import { 
   Calendar as CalendarIcon, 
   User, 
@@ -56,10 +56,9 @@ const appId = 'ccbs-agendamento-final';
 // ==========================================
 // 2. CONSTANTES E CONFIGURAÇÕES DO EMAILJS
 // ==========================================
-// Substitua pelas suas chaves obtidas no painel do EmailJS:
 const EMAILJS_SERVICE_ID = 'service_ccbs123';
-const EMAILJS_TEMPLATE_ID = 'template_bap0q9f';
-const EMAILJS_PUBLIC_KEY = 'GDyWQHi7TP21axsVa';
+const EMAILJS_TEMPLATE_ID = 'SEU_TEMPLATE_ID';
+const EMAILJS_PUBLIC_KEY = 'SUA_PUBLIC_KEY';
 
 const AUDITORIOS = ['AUDITÓRIO', 'SALA DE REUNIÃO', 'SALA 01'];
 const HORARIOS = [
@@ -177,7 +176,6 @@ export default function App() {
     setTimeout(() => setToast(null), 3500);
   };
 
-  // Função dedicada ao disparo do e-mail automático via EmailJS
   const enviarEmailLembrete = async (dadosReserva: any) => {
     try {
       const templateParams = {
@@ -262,7 +260,6 @@ export default function App() {
       const docRef = doc(db, 'artifacts', appId as string, 'public', 'data', 'reservas_ccbs', id);
       await setDoc(docRef, novaReserva);
       
-      // Dispara o e-mail em segundo plano
       enviarEmailLembrete(novaReserva);
 
       setShowReceipt(novaReserva);
@@ -952,68 +949,73 @@ export default function App() {
         </div>
       )}
 
-     {showHelpModal && (
-  <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[140] flex items-center justify-center p-4 print:hidden">
-    <div className="bg-white rounded-[2rem] p-8 max-w-md w-full shadow-2xl text-left relative">
-      <button 
-        onClick={() => setShowHelpModal(false)}
-        className="absolute top-6 right-6 p-2 text-slate-400 hover:text-slate-600 rounded-full transition-all"
-      >
-        <X className="w-5 h-5" />
-      </button>
+      {/* MODAL DA CENTRAL DE AJUDA COMPLETO */}
+      {showHelpModal && (
+        <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[140] flex items-center justify-center p-4 print:hidden">
+          <div className="bg-white rounded-[2rem] p-8 max-w-md w-full shadow-2xl text-left relative">
+            <button 
+              onClick={() => setShowHelpModal(false)}
+              className="absolute top-6 right-6 p-2 text-slate-400 hover:text-slate-600 rounded-full transition-all"
+            >
+              <X className="w-5 h-5" />
+            </button>
 
-      <div className="flex items-center gap-3 mb-6">
-        <div className="bg-blue-100 p-3 rounded-2xl text-blue-700">
-          <HelpCircle className="w-6 h-6" />
-        </div>
-        <div>
-          <h3 className="text-lg font-black uppercase text-slate-800">Central de Ajuda</h3>
-          <p className="text-xs text-slate-400 font-bold">Sistema de Reservas CCBS</p>
-        </div>
-      </div>
+            <div className="flex items-center gap-3 mb-6">
+              <div className="bg-blue-100 p-3 rounded-2xl text-blue-700">
+                <HelpCircle className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-lg font-black uppercase text-slate-800">Central de Ajuda</h3>
+                <p className="text-xs text-slate-400 font-bold">Sistema de Reservas CCBS</p>
+              </div>
+            </div>
 
-      <div className="space-y-4 text-xs text-slate-600 leading-relaxed mb-6 max-h-[60vh] overflow-y-auto pr-1">
-        {/* NOVO ITEM: Resolução CONSAD/CCBS n° 01/2026 */}
-        <div className="bg-blue-50/60 p-4 rounded-2xl border border-blue-100">
-          <p className="font-black text-blue-900 uppercase text-[11px] mb-1">
-            Prazo e Envio do Termo Assinado
-          </p>
-          <p className="text-slate-700 leading-snug">
-            Conforme a <strong>Resolução CONSAD/CCBS n° 01/2026</strong>, para confirmar o agendamento é necessário enviar o termo assinado via Gov.br para o e-mail <span className="font-bold text-blue-700">reservaccbs@gmail.com</span> em até <strong>48 horas</strong>, caso contrário a reserva será cancelada.
-          </p>
-          <a 
-            href="https://ccbs.ufcg.edu.br/index.php/agendamento-de-espacos-fisicos" 
-            target="_blank" 
-            rel="noopener noreferrer" 
-            className="inline-block mt-2 text-[10px] font-bold text-blue-600 hover:underline uppercase tracking-wide"
-          >
-            + Mais informações e documentos oficiais
-          </a>
-        </div>
+            <div className="space-y-4 text-xs text-slate-600 leading-relaxed mb-6 max-h-[60vh] overflow-y-auto pr-1">
+              {/* ITEM DA RESOLUÇÃO CONSAD/CCBS */}
+              <div className="bg-blue-50/60 p-4 rounded-2xl border border-blue-100">
+                <p className="font-black text-blue-900 uppercase text-[11px] mb-1">
+                  Prazo e Envio do Termo Assinado
+                </p>
+                <p className="text-slate-700 leading-snug">
+                  Conforme a <strong>Resolução CONSAD/CCBS n° 01/2026</strong>, para confirmar o agendamento é necessário enviar o termo assinado via Gov.br para o e-mail <span className="font-bold text-blue-700">reservaccbs@gmail.com</span> em até <strong>48 horas</strong>, caso contrário a reserva será cancelada.
+                </p>
+                <a 
+                  href="https://ccbs.ufcg.edu.br/index.php/agendamento-de-espacos-fisicos" 
+                  target="_blank" 
+                  rel="noopener noreferrer" 
+                  className="inline-block mt-2 text-[10px] font-bold text-blue-600 hover:underline uppercase tracking-wide"
+                >
+                  + Mais informações e documentos oficiais
+                </a>
+              </div>
 
-        {/* ITEM 2: Segunda via */}
-        <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
-          <p className="font-bold text-slate-800 mb-1">Como emitir a 2ª via do termo?</p>
-          <p className="text-slate-600">
-            Clique no botão <strong>"2ª Via do Termo"</strong> no topo da página, digite o código do protocolo fornecido e a sua senha cadastrada.
-          </p>
-        </div>
+              {/* ITEM DE SEGUNDA VIA */}
+              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                <p className="font-bold text-slate-800 mb-1">Como emitir a 2ª via do termo?</p>
+                <p className="text-slate-600">
+                  Clique no botão <strong>"2ª Via do Termo"</strong> no topo da página, digite o código do protocolo fornecido e a sua senha cadastrada.
+                </p>
+              </div>
 
-        {/* ITEM 3: Cancelamento */}
-        <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
-          <p className="font-bold text-slate-800 mb-1">Como cancelar um agendamento?</p>
-          <p className="text-slate-600">
-            Selecione o dia do evento no calendário, clique no ícone da lixeira ao lado da reserva e introduza a sua senha.
-          </p>
-        </div>
-      </div>
+              {/* ITEM DE CANCELAMENTO */}
+              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                <p className="font-bold text-slate-800 mb-1">Como cancelar um agendamento?</p>
+                <p className="text-slate-600">
+                  Selecione o dia do evento no calendário, clique no ícone da lixeira ao lado da reserva e introduza a sua senha.
+                </p>
+              </div>
+            </div>
 
-      <button 
-        onClick={() => setShowHelpModal(false)} 
-        className="w-full py-4 bg-slate-900 text-white font-black rounded-xl uppercase tracking-widest text-[10px] hover:bg-slate-800 transition-all text-center cursor-pointer shadow-lg"
-      >
-        Entendido
-      </button>
+            <button 
+              onClick={() => setShowHelpModal(false)} 
+              className="w-full py-4 bg-slate-900 text-white font-black rounded-xl uppercase tracking-widest text-[10px] hover:bg-slate-800 transition-all text-center cursor-pointer shadow-lg"
+            >
+              Entendido
+            </button>
+          </div>
+        </div>
+      )}
+
     </div>
-  </div>
-)}
+  );
+}
