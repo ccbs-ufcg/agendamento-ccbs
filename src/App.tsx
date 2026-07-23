@@ -3,9 +3,7 @@ import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 import { 
   Calendar as CalendarIcon, 
-  Clock, 
   User, 
-  Building, 
   CheckCircle, 
   Trash2, 
   CalendarCheck,
@@ -24,18 +22,19 @@ import {
   Shield,
   Github,
   CreditCard,
-  QrCode,
   Search,
   Copy,
   HelpCircle
 } from 'lucide-react';
 
-// Importações do Firebase
+// Importações oficiais da SDK do Firebase
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, collection, onSnapshot, doc, getDoc, setDoc, deleteDoc } from 'firebase/firestore';
 
-// --- CONFIGURAÇÃO DO FIREBASE ---
+// ==========================================
+// 1. CONFIGURAÇÃO E INICIALIZAÇÃO DO FIREBASE
+// ==========================================
 const firebaseConfig = {
   projectId: "gen-lang-client-0405590990",
   appId: "1:507764642698:web:856fe24c5779424c04ee73",
@@ -46,12 +45,15 @@ const firebaseConfig = {
   messagingSenderId: "507764642698",
 };
 
+// Inicialização dos serviços
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 const appId = 'ccbs-agendamento-final';
 
-// --- CONSTANTES ---
+// ==========================================
+// 2. CONSTANTES E CONFIGURAÇÕES DO SISTEMA
+// ==========================================
 const AUDITORIOS = ['AUDITÓRIO', 'SALA DE REUNIÃO', 'SALA 01'];
 const HORARIOS = [
   '07:00', '08:00', '09:00', '10:00', '11:00', 
@@ -59,37 +61,29 @@ const HORARIOS = [
 ];
 const MASTER_PASSWORD = 'adminCCBS2026';
 
-// LOGOS
+// Caminhos das imagens de logotipo
 const UFCG_LOGO = 'logo-ufcg.png'; 
-const CCBS_LOGO = 'logo-ccbs.png';
-
-function formatarDataExtenso(dataCriacao: string) {
-  if (!dataCriacao) return '';
-  const [dataParte] = dataCriacao.split(',');
-  const [dia, mes, ano] = dataParte.split('/').map(Number);
-  const data = new Date(ano, mes - 1, dia);
-  return data.toLocaleDateString('pt-BR', { day: 'numeric', month: 'long', year: 'numeric' });
-}
 
 export default function App() {
+  // --- ESTADOS DE AUTENTICAÇÃO E DADOS ---
   const [user, setUser] = useState<any>(null);
   const [reservas, setReservas] = useState<any[]>([]);
   const [toast, setToast] = useState<{message: string, type: string} | null>(null);
 
-  // Estados dos Modais
+  // --- ESTADOS DOS MODAIS DE INTERFACE ---
   const [showCancelModal, setShowCancelModal] = useState<any>(null);
   const [showReceipt, setShowReceipt] = useState<any>(null);
   const [showAdminUnlock, setShowAdminUnlock] = useState(false);
   const [showReprintModal, setShowReprintModal] = useState(false);
   const [showHelpModal, setShowHelpModal] = useState(false); 
 
-  // Estados de Formulários e Segurança
+  // --- ESTADOS DE FORMULÁRIOS E SEGURANÇA ---
   const [cancelPassword, setCancelPassword] = useState('');
   const [adminUnlockPassword, setAdminUnlockPassword] = useState('');
   const [reprintId, setReprintId] = useState('');
   const [reprintPassword, setReprintPassword] = useState('');
 
-  // Estados de Controle de Interface
+  // --- ESTADOS DE CONTROLE DE INTERFACE ---
   const [loading, setLoading] = useState(true);
   const [generatingPDF, setGeneratingPDF] = useState(false);
   const [loadingSecondCopy, setLoadingSecondCopy] = useState(false);
@@ -98,9 +92,10 @@ export default function App() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDayReservas, setSelectedDayReservas] = useState<{date: string, items: any[]} | null>(null);
 
-  // REFERÊNCIA DO PDF
+  // REFERÊNCIA HTML: Usada para capturar o elemento do Termo e gerar o PDF
   const termoRef = useRef<HTMLDivElement>(null);
 
+  // ESTADO DO FORMULÁRIO DE NOVO AGENDAMENTO
   const [formData, setFormData] = useState({
     auditorio: AUDITORIOS[0],
     data: '',
@@ -115,7 +110,11 @@ export default function App() {
     senha: ''
   });
 
-  // 1. Inicialização e Autenticação no Firebase
+  // ==========================================
+  // 3. EFEITOS (AUTENTICAÇÃO E FIRESTORE)
+  // ==========================================
+
+  // Efeito 1: Autenticação inicial no Firebase
   useEffect(() => {
     if (!auth) {
       setLoading(false);
@@ -141,13 +140,14 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // 2. Escuta em Tempo Real das Reservas
+  // Efeito 2: Escuta em tempo real da coleção de agendamentos no Firestore
   useEffect(() => {
     if (!user || !db) return;
     const reservasRef = collection(db, 'artifacts', appId as string, 'public', 'data', 'reservas_ccbs');
     
     const unsubscribe = onSnapshot(reservasRef, (snapshot) => {
       const lista = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      // Ordena por data e hora de início
       setReservas(lista.sort((a: any, b: any) => a.data.localeCompare(b.data) || a.horaInicio.localeCompare(b.horaInicio)));
     }, (error) => {
       console.error("Erro ao sincronizar Firestore:", error);
@@ -156,13 +156,21 @@ export default function App() {
     return () => unsubscribe();
   }, [user]);
 
+  // ==========================================
+  // 4. FUNÇÕES DE SUPORTE E MANIPULAÇÃO
+  // ==========================================
+
+  // Exibe alertas temporários (Toast)
   const showToast = (message: string, type = 'success') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3000);
   };
 
+  // Atualiza os campos do formulário de criação
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
+    
+    // Validação de dias úteis
     if (name === 'data') {
       const d = new Date(value + 'T12:00:00');
       if (d.getDay() === 0 || d.getDay() === 6) {
@@ -170,6 +178,8 @@ export default function App() {
         return;
       }
     }
+    
+    // Bloqueio temporário da Sala de Reunião
     if (name === 'auditorio' && value === 'SALA DE REUNIÃO') {
       showToast('A Sala de Reunião está temporariamente indisponível!', 'error');
       return;
@@ -177,11 +187,12 @@ export default function App() {
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
+  // Submissão do novo agendamento
   const handleBooking = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (formData.auditorio === 'SALA DE REUNIÃO') {
-      showToast('A Sala de Reunião está temporariamente indisponível para novos agendamentos.', 'error');
+      showToast('A Sala de Reunião está temporariamente indisponível.', 'error');
       return;
     }
 
@@ -190,6 +201,7 @@ export default function App() {
       return;
     }
 
+    // Validação de choque de horários no mesmo local
     const conflito = reservas.find(r => 
       r.auditorio === formData.auditorio && 
       r.data === formData.data && 
@@ -198,10 +210,11 @@ export default function App() {
     );
 
     if (conflito) {
-      showToast('Este horário já está ocupado!', 'error');
+      showToast('Este horário já está ocupado por outro evento!', 'error');
       return;
     }
 
+    // Criação do ID único (Protocolo)
     const id = Math.random().toString(36).substr(2, 9).toUpperCase();
     const novaReserva = { 
       ...formData, 
@@ -211,24 +224,27 @@ export default function App() {
 
     try {
       if (!db) {
-        showToast('Banco de dados não configurado.', 'error');
+        showToast('Banco de dados indisponível.', 'error');
         return;
       }
       const docRef = doc(db, 'artifacts', appId as string, 'public', 'data', 'reservas_ccbs', id);
       await setDoc(docRef, novaReserva);
       
       setShowReceipt(novaReserva);
-      showToast('Sucesso! Reserva guardada.');
+      showToast('Sucesso! Reserva realizada.');
+      
+      // Limpa o formulário
       setFormData({ 
         auditorio: AUDITORIOS[0], data: '', horaInicio: '07:00', horaFim: '08:00', 
         nomeEvento: '', requisitante: '', cpf: '', email: '', telefone: '', setor: '', senha: '' 
       });
     } catch (e) {
       console.error(e);
-      showToast('Erro ao comunicar com o servidor.', 'error');
+      showToast('Erro ao salvar agendamento no banco de dados.', 'error');
     }
   };
 
+  // Cancelamento de agendamento mediante senha
   const confirmCancelation = async () => {
     if (!showCancelModal) return;
 
@@ -238,7 +254,7 @@ export default function App() {
     if (inputSenha === senhaReserva || inputSenha === MASTER_PASSWORD) {
       try {
         if (!db) {
-          showToast('Banco de dados não configurado.', 'error');
+          showToast('Banco de dados indisponível.', 'error');
           return;
         }
         
@@ -250,14 +266,15 @@ export default function App() {
         setCancelPassword('');
         setSelectedDayReservas(null);
       } catch (e) { 
-        console.error("Erro ao deletar documento:", e);
-        showToast('Erro ao remover.', 'error'); 
+        console.error("Erro ao deletar agendamento:", e);
+        showToast('Erro ao remover o agendamento.', 'error'); 
       }
     } else {
       showToast('Senha incorreta!', 'error');
     }
   };
 
+  // Ativação do Modo Administrador
   const handleAdminUnlock = () => {
     if (adminUnlockPassword.trim() === MASTER_PASSWORD) {
       setIsAdminMode(true);
@@ -269,7 +286,7 @@ export default function App() {
     }
   };
 
-  // 3. Função Corrigida para Buscar e Gerar a Segunda Via
+  // Busca de 2ª Via do Termo por Protocolo e Senha
   const handleFetchSecondCopy = async () => {
     if (!reprintId || !reprintPassword) {
       showToast('Insira o Protocolo e a Senha!', 'error');
@@ -280,10 +297,10 @@ export default function App() {
       const idBuscado = reprintId.toUpperCase().trim();
       const senhaBuscada = reprintPassword.trim();
 
-      // Procura primeiro no estado local
+      // Busca na memória local
       let dadosReserva = reservas.find(r => r.id === idBuscado);
 
-      // Se não encontrar localmente, realiza a busca direta no Firestore
+      // Se não estiver na memória, busca diretamente no Firestore
       if (!dadosReserva && db) {
         const docRef = doc(db, 'artifacts', appId as string, 'public', 'data', 'reservas_ccbs', idBuscado);
         const docSnap = await getDoc(docRef);
@@ -306,65 +323,84 @@ export default function App() {
         showToast('Protocolo não encontrado.', 'error');
       }
     } catch (err) {
-      console.error("Erro ao procurar termo:", err);
-      showToast('Erro ao buscar dados do servidor.', 'error');
+      console.error("Erro ao buscar termo:", err);
+      showToast('Erro ao buscar dados no servidor.', 'error');
     } finally {
       setLoadingSecondCopy(false);
     }
   };
 
+  // ==========================================
+  // 5. FUNÇÃO CORRIGIDA DE GERAÇÃO DO PDF
+  // ==========================================
   const handleDownloadPDF = async () => {
     const elemento = termoRef.current;
     if (!elemento) {
-      showToast('Erro: Elemento do termo não carregado.', 'error');
+      showToast('Erro: Elemento do termo não encontrado.', 'error');
       return;
     }
     
     setGeneratingPDF(true);
+
+    // Salva as dimensões originais do elemento HTML
     const originalWidth = elemento.style.width;
     const originalMaxWidth = elemento.style.maxWidth;
 
     try {
-      elemento.style.width = '800px';
-      elemento.style.maxWidth = '800px';
+      // 1. Ajusta temporariamente a largura para garantir proporção
+      elemento.style.width = '750px';
+      elemento.style.maxWidth = '750px';
 
-      await new Promise((resolve) => setTimeout(resolve, 300));
+      // Aguarda 250ms para a re-renderização da tela
+      await new Promise((resolve) => setTimeout(resolve, 250));
 
+      // 2. Captura o elemento usando html2canvas com parâmetros de estabilidade
       const canvas = await html2canvas(elemento, { 
-        scale: 1.5, 
-        backgroundColor: '#ffffff', 
-        useCORS: true,
-        allowTaint: false,
+        scale: 2,                  // Duplica a resolução gráfica
+        backgroundColor: '#ffffff', // Garante fundo branco sólido
+        useCORS: true,             // Tenta carregar imagens externas via CORS
+        allowTaint: true,          // Permite inclusão de SVGs e recursos locais
+        scrollX: 0,
+        scrollY: -window.scrollY,  // Elimina o deslocamento causado pelo scroll da página
         logging: false
       });
       
+      // Restaura o tamanho original na tela
       elemento.style.width = originalWidth;
       elemento.style.maxWidth = originalMaxWidth;
 
-      const pdf = new jsPDF({
-        orientation: 'p',
-        unit: 'mm',
-        format: 'a4',
-        compress: true 
-      });
-      
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
-      const imgData = canvas.toDataURL('image/jpeg', 0.75);
+      // 3. Exporta para formato de imagem PNG (evita erros de conversão do JPEG)
+      const imgData = canvas.toDataURL('image/png');
 
-      pdf.addImage(imgData, 'JPEG', 0, 0, pageWidth, pageHeight, undefined, 'FAST');
-      pdf.save(`Termo_${showReceipt.id}.pdf`);
-      showToast('PDF compactado e baixado!');
+      // 4. Cria o documento PDF no formato A4 (210mm x 297mm)
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      const pageWidth = pdf.internal.pageSize.getWidth();   // 210 mm
+      const pageHeight = pdf.internal.pageSize.getHeight(); // 297 mm
+
+      // Calcula a altura proporcional para não distorcer o conteúdo
+      const imgWidth = pageWidth;
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+      const finalHeight = imgHeight > pageHeight ? pageHeight : imgHeight;
+
+      // Adiciona a imagem ao PDF e inicia o download
+      pdf.addImage(imgData, 'PNG', 0, 0, imgWidth, finalHeight, undefined, 'FAST');
+      pdf.save(`Termo_${showReceipt?.id || 'Agendamento'}.pdf`);
+
+      showToast('PDF descarregado com sucesso!', 'success');
     } catch (err: any) {
-      console.error("Erro na geração do PDF:", err);
+      console.error("Erro detalhado ao gerar o PDF:", err);
+      
+      // Restaura o estilo do elemento em caso de falha
       elemento.style.width = originalWidth;
       elemento.style.maxWidth = originalMaxWidth;
+      
       showToast('Erro ao processar o arquivo PDF.', 'error');
     } finally {
       setGeneratingPDF(false);
     }
   };
 
+  // Cores indicativas por local
   const obterCorLocal = (local: string) => {
     if (local === 'AUDITÓRIO') return 'bg-blue-600';
     if (local === 'SALA DE REUNIÃO') return 'bg-cyan-500';
@@ -372,11 +408,13 @@ export default function App() {
     return 'bg-slate-600';
   };
 
+  // Copia o código de protocolo para a área de transferência
   const copiarParaTransferencia = (texto: string) => {
     navigator.clipboard.writeText(texto);
     showToast('Código de protocolo copiado! 📋');
   };
 
+  // Renderizador das células do Calendário
   const renderCalendar = () => {
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
@@ -421,10 +459,13 @@ export default function App() {
     return days;
   };
 
+  // ==========================================
+  // 6. ESTRUTURA VISUAL (JSX)
+  // ==========================================
   return (
     <div className="min-h-screen bg-slate-100 font-sans text-slate-800 pb-12 flex flex-col print:bg-white print:p-0">
       
-      {/* MENSAGEM TOAST */}
+      {/* NOTIFICAÇÃO TOAST */}
       {toast && (
         <div className={`fixed bottom-6 right-6 z-[200] px-6 py-3 rounded-2xl shadow-2xl text-white font-bold text-xs uppercase tracking-wider animate-bounce ${toast.type === 'error' ? 'bg-red-600' : 'bg-blue-600'}`}>
           {toast.message}
@@ -455,9 +496,10 @@ export default function App() {
         </div>
       </header>
 
+      {/* CONTEÚDO PRINCIPAL */}
       <main className="max-w-7xl mx-auto px-4 py-8 grid grid-cols-1 lg:grid-cols-12 gap-8 print:hidden flex-1">
         
-        {/* FORMULÁRIO DE AGENDAMENTO */}
+        {/* COLUNA DA ESQUERDA: FORMULÁRIO DE AGENDAMENTO */}
         <div className="lg:col-span-4">
           <div className="bg-white rounded-[2rem] shadow-2xl border border-slate-200 overflow-hidden sticky top-24">
             
@@ -490,7 +532,7 @@ export default function App() {
                   })}
                 </select>
                 
-                <input type="date" name="data" value={formData.data} onChange={handleChange} className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none focus:border-blue-600" />
+                <input type="date" name="data" value={formData.data} onChange={handleChange} className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none focus:border-blue-600 font-bold" />
                 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
@@ -530,14 +572,14 @@ export default function App() {
                 </div>
               </div>
 
-              <button type="submit" className="w-full py-5 mt-2 bg-blue-600 text-white font-black rounded-2xl shadow-xl shadow-blue-500/20 hover:bg-blue-700 transition-all uppercase tracking-widest text-xs flex items-center justify-center gap-2 active:scale-95">
+              <button type="submit" className="w-full py-5 mt-2 bg-blue-600 text-white font-black rounded-2xl shadow-xl shadow-blue-500/20 hover:bg-blue-700 transition-all uppercase tracking-widest text-xs flex items-center justify-center gap-2 active:scale-95 cursor-pointer">
                 <CheckCircle className="w-4 h-4" /> Confirmar Agendamento
               </button>
             </form>
           </div>
         </div>
 
-        {/* CALENDÁRIO */}
+        {/* COLUNA DA DIREITA: CALENDÁRIO E EVENTOS */}
         <div className="lg:col-span-8 space-y-6 relative">
           <div className="bg-white rounded-[2.5rem] shadow-xl border border-slate-200 overflow-hidden">
             <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
@@ -573,7 +615,7 @@ export default function App() {
             </div>
           </div>
 
-          {/* DETALHES DO DIA SELECIONADO */}
+          {/* PAINEL DE DETALHES DO DIA SELECIONADO */}
           {selectedDayReservas && (
             <div className="bg-slate-900 rounded-[2rem] p-8 text-white shadow-2xl animate-in slide-in-from-right duration-500 relative overflow-hidden">
                <div className="absolute top-0 right-0 w-32 h-32 bg-blue-600/10 rounded-full -mr-16 -mt-16 blur-3xl"></div>
@@ -657,7 +699,11 @@ export default function App() {
         </div>
       </footer>
 
-      {/* MODAL: REMOVER AGENDAMENTO (CANCELAMENTO) */}
+      {/* ==========================================
+          MODAIS AUXILIARES
+         ========================================== */}
+
+      {/* MODAL 1: REMOVER AGENDAMENTO (CANCELAMENTO) */}
       {showCancelModal && (
         <div className="fixed inset-0 bg-slate-900/95 backdrop-blur-md z-[130] flex items-center justify-center p-4 print:hidden">
           <div className="bg-white rounded-[2rem] p-8 max-w-sm w-full shadow-2xl text-center">
@@ -682,7 +728,7 @@ export default function App() {
             <div className="flex flex-col gap-2">
               <button 
                 onClick={confirmCancelation} 
-                className="w-full py-4 bg-red-600 text-white font-black rounded-xl uppercase tracking-widest text-[10px] hover:bg-red-700 shadow-md shadow-red-500/20 transition-all flex items-center justify-center gap-2"
+                className="w-full py-4 bg-red-600 text-white font-black rounded-xl uppercase tracking-widest text-[10px] hover:bg-red-700 shadow-md shadow-red-500/20 transition-all flex items-center justify-center gap-2 cursor-pointer"
               >
                 Remover Definitivamente
               </button>
@@ -697,7 +743,7 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL 1: BUSCA DA 2ª VIA DO TERMO */}
+      {/* MODAL 2: BUSCA DA 2ª VIA DO TERMO */}
       {showReprintModal && (
         <div className="fixed inset-0 bg-slate-900/95 backdrop-blur-md z-[140] flex items-center justify-center p-4 print:hidden">
           <div className="bg-white rounded-[2rem] p-8 max-w-md w-full shadow-2xl text-center relative">
@@ -745,7 +791,7 @@ export default function App() {
               <button 
                 onClick={handleFetchSecondCopy} 
                 disabled={loadingSecondCopy}
-                className="w-full py-4 bg-blue-600 text-white font-black rounded-xl uppercase tracking-widest text-xs hover:bg-blue-700 shadow-lg shadow-blue-500/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                className="w-full py-4 bg-blue-600 text-white font-black rounded-xl uppercase tracking-widest text-xs hover:bg-blue-700 shadow-lg shadow-blue-500/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
               >
                 {loadingSecondCopy ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
                 {loadingSecondCopy ? 'A procurar...' : 'Buscar e Gerar Termo'}
@@ -762,12 +808,12 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL 2: EXIBIÇÃO E IMPRESSÃO DO TERMO (RECEIPT & PDF) */}
+      {/* MODAL 3: VISUALIZAÇÃO E IMPRESSÃO DO TERMO (PDF) */}
       {showReceipt && (
         <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[150] flex items-center justify-center p-4 overflow-y-auto print:p-0 print:bg-white print:static">
           <div className="bg-white rounded-3xl p-6 md:p-8 max-w-2xl w-full shadow-2xl relative my-8 print:shadow-none print:p-0 print:m-0">
             
-            {/* Barra Superior do Modal */}
+            {/* Barra de Ações Superior */}
             <div className="flex justify-between items-center mb-6 print:hidden">
               <button 
                 onClick={() => setShowReceipt(null)}
@@ -790,7 +836,7 @@ export default function App() {
             {/* TERMO DE AGENDAMENTO (ELEMENTO CAPTURADO PELO HTML2CANVAS) */}
             <div ref={termoRef} className="p-8 bg-white border border-slate-200 rounded-2xl text-slate-800 space-y-6 print:border-none print:p-0">
               
-              {/* Cabeçalho do Documento */}
+              {/* Cabeçalho do Termo */}
               <div className="flex items-center justify-between border-b pb-4 border-slate-200">
                 <div>
                   <h2 className="text-lg font-black text-blue-900 uppercase">Termo de Agendamento</h2>
@@ -802,7 +848,7 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Informações do Agendamento */}
+              {/* Dados do Agendamento */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs leading-relaxed text-slate-700 bg-slate-50 p-4 rounded-xl border border-slate-100">
                 <div>
                   <p className="font-bold text-slate-400 text-[10px] uppercase">Evento</p>
@@ -830,7 +876,7 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Normas e Condições */}
+              {/* Normas de Uso */}
               <div className="pt-4 border-t border-slate-200 text-[10px] text-slate-500 space-y-1.5">
                 <p className="font-bold uppercase text-slate-700 mb-1">Normas de Utilização:</p>
                 <p>• O responsável declara-se ciente de que é responsável pela conservação dos equipamentos e estrutura durante o evento.</p>
@@ -843,7 +889,7 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL 3: MODO ADMINISTRADOR */}
+      {/* MODAL 4: DESBLOQUEIO DE MODO ADMIN */}
       {showAdminUnlock && (
         <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[140] flex items-center justify-center p-4 print:hidden">
           <div className="bg-white rounded-[2rem] p-8 max-w-sm w-full shadow-2xl text-center">
@@ -864,7 +910,7 @@ export default function App() {
             <div className="flex flex-col gap-2">
               <button 
                 onClick={handleAdminUnlock} 
-                className="w-full py-4 bg-amber-600 text-white font-black rounded-xl uppercase tracking-widest text-[10px] hover:bg-amber-700 transition-all"
+                className="w-full py-4 bg-amber-600 text-white font-black rounded-xl uppercase tracking-widest text-[10px] hover:bg-amber-700 transition-all cursor-pointer"
               >
                 Acessar Dados
               </button>
@@ -879,7 +925,7 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL 4: CENTRAL DE AJUDA */}
+      {/* MODAL 5: CENTRAL DE AJUDA */}
       {showHelpModal && (
         <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[140] flex items-center justify-center p-4 print:hidden">
           <div className="bg-white rounded-[2rem] p-8 max-w-md w-full shadow-2xl text-left relative">
@@ -914,7 +960,7 @@ export default function App() {
 
             <button 
               onClick={() => setShowHelpModal(false)} 
-              className="w-full py-3.5 bg-slate-800 text-white font-black rounded-xl uppercase tracking-widest text-[10px] hover:bg-slate-900 transition-all text-center"
+              className="w-full py-3.5 bg-slate-800 text-white font-black rounded-xl uppercase tracking-widest text-[10px] hover:bg-slate-900 transition-all text-center cursor-pointer"
             >
               Entendido
             </button>
