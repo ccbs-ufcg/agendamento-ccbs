@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
+import emailjs from '@emailjs/browser'; // Importação da biblioteca de e-mails
 import { 
   Calendar as CalendarIcon, 
   User, 
@@ -53,8 +54,13 @@ const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 const appId = 'ccbs-agendamento-final';
 
 // ==========================================
-// 2. CONSTANTES E CONFIGURAÇÕES DO SISTEMA
+// 2. CONSTANTES E CONFIGURAÇÕES DO EMAILJS
 // ==========================================
+// Substitua pelas suas chaves obtidas no painel do EmailJS:
+const EMAILJS_SERVICE_ID = 'service_ccbs123';
+const EMAILJS_TEMPLATE_ID = 'template_bap0q9f';
+const EMAILJS_PUBLIC_KEY = 'GDyWQHi7TP21axsVa';
+
 const AUDITORIOS = ['AUDITÓRIO', 'SALA DE REUNIÃO', 'SALA 01'];
 const HORARIOS = [
   '07:00', '08:00', '09:00', '10:00', '11:00', 
@@ -103,7 +109,6 @@ export default function App() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDayReservas, setSelectedDayReservas] = useState<{date: string, items: any[]} | null>(null);
 
-  // REFERÊNCIA HTML: Usada para capturar o Termo e converter para PDF
   const termoRef = useRef<HTMLDivElement>(null);
 
   // DADOS DO NOVO AGENDAMENTO
@@ -165,11 +170,38 @@ export default function App() {
   }, [user]);
 
   // ==========================================
-  // 4. FUNÇÕES DE SUPORTE
+  // 4. FUNÇÕES DE SUPORTE E ENVIO DE E-MAIL
   // ==========================================
   const showToast = (message: string, type = 'success') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3500);
+  };
+
+  // Função dedicada ao disparo do e-mail automático via EmailJS
+  const enviarEmailLembrete = async (dadosReserva: any) => {
+    try {
+      const templateParams = {
+        to_name: dadosReserva.requisitante,
+        to_email: dadosReserva.email,
+        nome_evento: dadosReserva.nomeEvento,
+        auditorio: dadosReserva.auditorio,
+        data_evento: dadosReserva.data.split('-').reverse().join('/'),
+        hora_inicio: dadosReserva.horaInicio,
+        hora_fim: dadosReserva.horaFim,
+        protocolo: dadosReserva.id
+      };
+
+      await emailjs.send(
+        EMAILJS_SERVICE_ID,
+        EMAILJS_TEMPLATE_ID,
+        templateParams,
+        EMAILJS_PUBLIC_KEY
+      );
+
+      console.log('E-mail de lembrete enviado com sucesso!');
+    } catch (error) {
+      console.error('Erro ao enviar e-mail de lembrete:', error);
+    }
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
@@ -230,8 +262,11 @@ export default function App() {
       const docRef = doc(db, 'artifacts', appId as string, 'public', 'data', 'reservas_ccbs', id);
       await setDoc(docRef, novaReserva);
       
+      // Dispara o e-mail em segundo plano
+      enviarEmailLembrete(novaReserva);
+
       setShowReceipt(novaReserva);
-      showToast('Sucesso! Reserva efetuada.');
+      showToast('Sucesso! Reserva efetuada e e-mail enviado.');
       
       setFormData({ 
         auditorio: AUDITORIOS[0], data: '', horaInicio: '07:00', horaFim: '08:00', 
