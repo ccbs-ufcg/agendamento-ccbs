@@ -59,8 +59,8 @@ const appId = 'ccbs-agendamento-final';
 // 2. CONSTANTES E CONFIGURAÇÕES DO EMAILJS
 // ==========================================
 const EMAILJS_SERVICE_ID = 'service_ccbs123';
-const EMAILJS_TEMPLATE_ID = 'SEU_TEMPLATE_ID';
-const EMAILJS_PUBLIC_KEY = 'SUA_PUBLIC_KEY';
+const EMAILJS_TEMPLATE_ID = 'template_bap0q9f';
+const EMAILJS_PUBLIC_KEY = 'GDyWQHi7TP21axsVa';
 
 const AUDITORIOS = ['AUDITÓRIO', 'SALA DE REUNIÃO', 'SALA 01'];
 const HORARIOS = [
