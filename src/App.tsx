@@ -1,4 +1,4 @@
-GDyWQHi7TP21axsVaimport React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 import emailjs from '@emailjs/browser';
@@ -188,9 +188,12 @@ export function App() {
 
   const enviarEmailLembrete = async (dadosReserva: any) => {
     try {
+      // Mapeamento dos parâmetros enviados ao EmailJS
       const templateParams = {
         to_name: dadosReserva.requisitante,
         to_email: dadosReserva.email,
+        user_email: dadosReserva.email, // Suporte para variável padrão
+        reply_to: dadosReserva.email,
         nome_evento: dadosReserva.nomeEvento,
         auditorio: dadosReserva.auditorio,
         data_evento: dadosReserva.data.split('-').reverse().join('/'),
@@ -199,16 +202,16 @@ export function App() {
         protocolo: dadosReserva.id
       };
 
-      await emailjs.send(
+      const res = await emailjs.send(
         EMAILJS_SERVICE_ID,
         EMAILJS_TEMPLATE_ID,
         templateParams,
         EMAILJS_PUBLIC_KEY
       );
 
-      console.log('E-mail de lembrete enviado com sucesso!');
+      console.log('E-mail enviado com sucesso via EmailJS:', res.status, res.text);
     } catch (error) {
-      console.error('Erro ao enviar e-mail de lembrete:', error);
+      console.error('Erro ao enviar e-mail via EmailJS:', error);
     }
   };
 
@@ -259,7 +262,7 @@ export function App() {
     const novaReserva = { 
       ...formData, 
       id, 
-      status: 'Aguardando Confirmação', // Novo campo de status inicial
+      status: 'Aguardando Confirmação',
       dataCriacao: new Date().toLocaleString('pt-BR') 
     };
 
@@ -274,7 +277,7 @@ export function App() {
       enviarEmailLembrete(novaReserva);
 
       setShowReceipt(novaReserva);
-      showToast('Sucesso! Reserva efetuada e e-mail enviado.');
+      showToast('Sucesso! Reserva efetuada.');
       
       setFormData({ 
         auditorio: AUDITORIOS[0], data: '', horaInicio: '07:00', horaFim: '08:00', 
