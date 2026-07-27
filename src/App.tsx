@@ -26,13 +26,15 @@ import {
   Search,
   Copy,
   HelpCircle,
-  QrCode
+  QrCode,
+  Clock,
+  Check
 } from 'lucide-react';
 
 // Importações oficiais do Firebase
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, collection, onSnapshot, doc, getDoc, setDoc, deleteDoc } from 'firebase/firestore';
+import { getFirestore, collection, onSnapshot, doc, getDoc, setDoc, deleteDoc, updateDoc } from 'firebase/firestore';
 
 // ==========================================
 // 1. CONFIGURAÇÃO E INICIALIZAÇÃO DO FIREBASE
@@ -168,6 +170,14 @@ export function App() {
     return () => unsubscribe();
   }, [user]);
 
+  // Sincroniza visualização do dia selecionado em tempo real
+  useEffect(() => {
+    if (selectedDayReservas) {
+      const atualizadas = reservas.filter(r => r.data === selectedDayReservas.date);
+      setSelectedDayReservas({ date: selectedDayReservas.date, items: atualizadas });
+    }
+  }, [reservas]);
+
   // ==========================================
   // 4. FUNÇÕES DE SUPORTE E ENVIO DE E-MAIL
   // ==========================================
@@ -249,6 +259,7 @@ export function App() {
     const novaReserva = { 
       ...formData, 
       id, 
+      status: 'Aguardando Confirmação', // Novo campo de status inicial
       dataCriacao: new Date().toLocaleString('pt-BR') 
     };
 
@@ -272,6 +283,26 @@ export function App() {
     } catch (e) {
       console.error(e);
       showToast('Erro ao guardar o agendamento no servidor.', 'error');
+    }
+  };
+
+  // Alteração de status pelo Administrador
+  const handleAlternarStatus = async (reservaId: string, statusAtual: string) => {
+    if (!isAdminMode) {
+      showToast('Apenas administradores podem alterar o status.', 'error');
+      return;
+    }
+
+    const novoStatus = statusAtual === 'Confirmado' ? 'Aguardando Confirmação' : 'Confirmado';
+
+    try {
+      if (!db) return;
+      const docRef = doc(db, 'artifacts', appId as string, 'public', 'data', 'reservas_ccbs', reservaId);
+      await updateDoc(docRef, { status: novoStatus });
+      showToast(`Status alterado para: ${novoStatus}`, 'success');
+    } catch (error) {
+      console.error('Erro ao alterar status:', error);
+      showToast('Erro ao atualizar o status no servidor.', 'error');
     }
   };
 
@@ -636,7 +667,7 @@ export function App() {
                  
                  {!isAdminMode ? (
                    <button onClick={() => setShowAdminUnlock(true)} className="flex items-center gap-2 text-[10px] font-bold text-slate-400 hover:text-white transition-all bg-white/5 px-3 py-1.5 rounded-full">
-                     <Lock className="w-3 h-3" /> Ver Contatos
+                     <Lock className="w-3 h-3" /> Ver Contatos / Admin
                    </button>
                  ) : (
                    <button onClick={() => setIsAdminMode(false)} className="flex items-center gap-2 text-[10px] font-bold text-emerald-400 hover:text-emerald-300 transition-all bg-emerald-400/10 px-3 py-1.5 rounded-full">
@@ -646,49 +677,87 @@ export function App() {
                </div>
                
                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                 {selectedDayReservas.items.map(res => (
-                   <div key={res.id} className="bg-white/5 border border-white/10 p-5 rounded-2xl relative group hover:bg-white/10 transition-all">
-                     <div className="flex justify-between items-start mb-3">
-                       <div className="flex items-center gap-2">
-                         <span className={`text-[8px] font-black px-2 py-0.5 rounded uppercase ${obterCorLocal(res.auditorio)}`}>{res.auditorio}</span>
-                         <span className="text-[10px] font-bold text-blue-300 uppercase">{res.horaInicio} - {res.horaFim}</span>
+                 {selectedDayReservas.items.map(res => {
+                   const statusReserva = res.status || 'Aguardando Confirmação';
+                   const isConfirmado = statusReserva === 'Confirmado';
+
+                   return (
+                     <div key={res.id} className="bg-white/5 border border-white/10 p-5 rounded-2xl relative group hover:bg-white/10 transition-all">
+                       <div className="flex justify-between items-start mb-3">
+                         <div className="flex items-center gap-2">
+                           <span className={`text-[8px] font-black px-2 py-0.5 rounded uppercase ${obterCorLocal(res.auditorio)}`}>{res.auditorio}</span>
+                           <span className="text-[10px] font-bold text-blue-300 uppercase">{res.horaInicio} - {res.horaFim}</span>
+                         </div>
+                         
+                         <button onClick={() => setShowCancelModal(res)} className="p-2 bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white rounded-lg transition-all" title="Cancelar este agendamento">
+                           <Trash2 className="w-4 h-4" />
+                         </button>
+                       </div>
+
+                       <h5 className="text-lg font-black uppercase tracking-tight text-white mb-1">{res.nomeEvento}</h5>
+                       <div className="flex items-center gap-2 text-xs text-slate-300 mb-2">
+                         <User className="w-3 h-3" /> {res.requisitante} <span className="opacity-50">({res.setor})</span>
                        </div>
                        
-                       <button onClick={() => setShowCancelModal(res)} className="p-2 bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white rounded-lg transition-all" title="Cancelar este agendamento">
-                         <Trash2 className="w-4 h-4" />
-                       </button>
-                     </div>
-                     <h5 className="text-lg font-black uppercase tracking-tight text-white mb-1">{res.nomeEvento}</h5>
-                     <div className="flex items-center gap-2 text-xs text-slate-300 mb-2">
-                       <User className="w-3 h-3" /> {res.requisitante} <span className="opacity-50">({res.setor})</span>
-                     </div>
-                     
-                     <div className="flex items-center gap-2 text-[11px] font-bold text-slate-400 mb-3 bg-white/5 px-2.5 py-1.5 rounded-xl w-fit border border-white/5">
-                       <span>Protocolo: <span className="text-blue-400 select-all font-mono uppercase tracking-wide">{res.id}</span></span>
-                       <button 
-                         onClick={() => copiarParaTransferencia(res.id)} 
-                         className="p-1 hover:bg-white/10 text-slate-300 hover:text-white rounded transition-all active:scale-90"
-                         title="Copiar Protocolo"
-                       >
-                         <Copy className="w-3 h-3" />
-                       </button>
-                     </div>
+                       <div className="flex items-center gap-2 text-[11px] font-bold text-slate-400 mb-3 bg-white/5 px-2.5 py-1.5 rounded-xl w-fit border border-white/5">
+                         <span>Protocolo: <span className="text-blue-400 select-all font-mono uppercase tracking-wide">{res.id}</span></span>
+                         <button 
+                           onClick={() => copiarParaTransferencia(res.id)} 
+                           className="p-1 hover:bg-white/10 text-slate-300 hover:text-white rounded transition-all active:scale-90"
+                           title="Copiar Protocolo"
+                         >
+                           <Copy className="w-3 h-3" />
+                         </button>
+                       </div>
 
-                     <div className="pt-3 border-t border-white/10">
-                       {isAdminMode ? (
-                         <div className="space-y-1">
-                           <p className="text-[10px] text-slate-400 flex items-center gap-2"><CreditCard className="w-3 h-3" /> CPF: {res.cpf}</p>
-                           <p className="text-[10px] text-slate-400 flex items-center gap-2"><Mail className="w-3 h-3" /> {res.email}</p>
-                           <p className="text-[10px] text-slate-400 flex items-center gap-2"><Phone className="w-3 h-3" /> {res.telefone}</p>
+                       {/* NOVO CAMPO: STATUS DO AGENDAMENTO */}
+                       <div className="mb-3">
+                         <div className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase border ${
+                           isConfirmado 
+                             ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' 
+                             : 'bg-amber-500/20 text-amber-400 border-amber-500/30'
+                         }`}>
+                           {isConfirmado ? <Check className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
+                           <span>Status: {statusReserva}</span>
                          </div>
-                       ) : (
-                         <div className="flex items-center gap-2 text-[10px] text-slate-500 italic">
-                           <Lock className="w-3 h-3" /> Contatos Ocultos
+                       </div>
+
+                       {/* BOTÃO EXCLUSIVO PARA O ADMINISTRADOR MUDAR O STATUS */}
+                       {isAdminMode && (
+                         <div className="mb-3 pt-2 border-t border-white/5">
+                           <button
+                             onClick={() => handleAlternarStatus(res.id, statusReserva)}
+                             className={`w-full py-2 px-3 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                               isConfirmado 
+                                 ? 'bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 border border-amber-500/40' 
+                                 : 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-lg shadow-emerald-600/20'
+                             }`}
+                           >
+                             {isConfirmado ? (
+                               <> <Clock className="w-3 h-3" /> Mudar para Aguardando Confirmação </>
+                             ) : (
+                               <> <Check className="w-3 h-3" /> Confirmar Agendamento (Admin) </>
+                             )}
+                           </button>
                          </div>
                        )}
+
+                       <div className="pt-3 border-t border-white/10">
+                         {isAdminMode ? (
+                           <div className="space-y-1">
+                             <p className="text-[10px] text-slate-400 flex items-center gap-2"><CreditCard className="w-3 h-3" /> CPF: {res.cpf}</p>
+                             <p className="text-[10px] text-slate-400 flex items-center gap-2"><Mail className="w-3 h-3" /> {res.email}</p>
+                             <p className="text-[10px] text-slate-400 flex items-center gap-2"><Phone className="w-3 h-3" /> {res.telefone}</p>
+                           </div>
+                         ) : (
+                           <div className="flex items-center gap-2 text-[10px] text-slate-500 italic">
+                             <Lock className="w-3 h-3" /> Contatos Ocultos
+                           </div>
+                         )}
+                       </div>
                      </div>
-                   </div>
-                 ))}
+                   );
+                 })}
                </div>
             </div>
           )}
@@ -921,7 +990,7 @@ export function App() {
               <Shield className="w-7 h-7" />
             </div>
             <h3 className="text-lg font-black uppercase mb-1">Modo Administrador</h3>
-            <p className="text-slate-500 text-xs mb-6">Insira a Senha Mestra para desbloquear os dados de contato.</p>
+            <p className="text-slate-500 text-xs mb-6">Insira a Senha Mestra para desbloquear os dados de contato e alterar o status das reservas.</p>
             
             <input 
               type="password" 
@@ -936,7 +1005,7 @@ export function App() {
                 onClick={handleAdminUnlock} 
                 className="w-full py-4 bg-amber-600 text-white font-black rounded-xl uppercase tracking-widest text-[10px] hover:bg-amber-700 transition-all cursor-pointer"
               >
-                Acessar Dados
+                Acessar Dados / Administrar
               </button>
               <button 
                 onClick={() => { setShowAdminUnlock(false); setAdminUnlockPassword(''); }} 
@@ -1057,7 +1126,7 @@ export function App() {
                       <li>Acesse o site do GOV.BR: <a href="https://assinador.iti.br" target="_blank" rel="noopener noreferrer" className="text-blue-600 font-bold underline">assinador.iti.br</a>.</li>
                       <li>Entre com sua conta do governo e assine o PDF digitalmente.</li>
                       <li>
-                        Conforme a <strong>Resolução CONSAD/CCBS n° 01/2026</strong>, envie o termo assinado para: <a href="mailto:reservaccbs@gmail.com" className="font-bold text-blue-700 underline">reservaccbs@gmail.com</a> em até <strong>48 horas</strong>, para evitar o cancelamento da reserva.
+                        Conforme a <strong>Resolução CONSAD/CCBS n° 01/2026</strong>, envie o termo assinado para: <a href="mailto:reservaccbs@gmail.com" className="font-bold text-blue-700 underline">reservaccbs@gmail.com</a> em até <strong>48 horas</strong>, sob pena de cancelamento da reserva.
                       </li>
                     </ol>
                   </div>
