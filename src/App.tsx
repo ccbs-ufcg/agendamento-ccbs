@@ -181,34 +181,24 @@ export function App() {
   // ==========================================
   // 4. FUNÇÕES DE SUPORTE E ENVIO DE E-MAIL
   // ==========================================
-const enviarEmailLembrete = async (dadosReserva: any) => {
+  const showToast = (message: string, type = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3500);
+  };
+
+  const enviarEmailLembrete = async (dadosReserva: any) => {
     try {
-      // Objeto com as variáveis enviadas para o template do EmailJS.
-      // O nome das chaves aqui deve corresponder às tags {{...}} do seu Template no EmailJS.
       const templateParams = {
         to_name: dadosReserva.requisitante,      // Nome do responsável
-        to_email: dadosReserva.email,            // E-MAIL DE DESTINO (O e-mail digitado no formulário)
-        reply_to: dadosReserva.email,            // Para responder diretamente ao solicitante
-        nome_evento: dadosReserva.nomeEvento,    // Nome da reunião / evento
+        to_email: dadosReserva.email,            // E-mail de destino
+        reply_to: dadosReserva.email,            // Responder para o solicitante
+        nome_evento: dadosReserva.nomeEvento,    // Nome do evento
         auditorio: dadosReserva.auditorio,        // Local reservado
-        data_evento: dadosReserva.data.split('-').reverse().join('/'), // Data formatada (DD/MM/AAAA)
-        hora_inicio: dadosReserva.horaInicio,    // Horário inicial
-        hora_fim: dadosReserva.horaFim,          // Horário final
-        protocolo: dadosReserva.id               // Código único do protocolo
+        data_evento: dadosReserva.data.split('-').reverse().join('/'), // Data (DD/MM/AAAA)
+        hora_inicio: dadosReserva.horaInicio,    // Horário de início
+        hora_fim: dadosReserva.horaFim,          // Horário de fim
+        protocolo: dadosReserva.id               // Protocolo da reserva
       };
-
-      const res = await emailjs.send(
-        EMAILJS_SERVICE_ID,
-        EMAILJS_TEMPLATE_ID,
-        templateParams,
-        EMAILJS_PUBLIC_KEY
-      );
-
-      console.log('E-mail enviado com sucesso para:', dadosReserva.email, res.status, res.text);
-    } catch (error) {
-      console.error('Erro ao enviar e-mail de lembrete via EmailJS:', error);
-    }
-  };
 
       const res = await emailjs.send(
         EMAILJS_SERVICE_ID,
