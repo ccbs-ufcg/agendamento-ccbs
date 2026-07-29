@@ -1062,7 +1062,7 @@ export function App() {
               <div className="bg-blue-50/60 p-4 rounded-2xl border border-blue-100">
                 <p className="font-bold text-blue-900 text-sm mb-1">📅 Como Agendar um Espaço no CCBS/UFCG</p>
                 <p className="text-slate-700">
-                  Bem-vindo(a) ao nosso sistema de agendamentos! Este guia vai te ensinar, de forma muito simples, como reservar o <strong>Auditório</strong>, a <strong>Sala de Reunião</strong> ou a <strong>Sala 01</strong>, além de como baixar o seu documento de confirmação.
+                  Este guia vai te ensinar, de forma muito simples, como reservar o <strong>Auditório</strong>, a <strong>Sala de Reunião</strong> ou a <strong>Sala 01</strong>, além de como baixar o seu documento de confirmação.
                 </p>
               </div>
 
@@ -1071,7 +1071,7 @@ export function App() {
                   <span className="font-black text-slate-800 block text-[11px] uppercase mb-1">1. Usuários Externos</span>
                   <p className="text-slate-500 text-[11px]">Demais Centros da UFCG e instituições externas.</p>
                   <p className="mt-2 text-slate-700 font-medium">
-                    <strong>Solicitação:</strong> Baixe o Anexo II (Ofício de Solicitação) no portal do CCBS, preencha-o e envie para: <a href="mailto:secretaria.ccbs@ufcg.edu.br" className="text-blue-600 underline font-bold">secretaria.ccbs@ufcg.edu.br</a>.
+                    <strong>Solicitação:</strong> Baixe o Anexo II (Ofício de Solicitação) no portal do CCBS <a href="https://ccbs.ufcg.edu.br/index.php/agendamento-de-espacos-fisicos"></a>, preencha-o e envie para: <a href="mailto:secretaria.ccbs@ufcg.edu.br" className="text-blue-600 underline font-bold">secretaria.ccbs@ufcg.edu.br</a>.
                   </p>
                 </div>
 
@@ -1155,6 +1155,7 @@ export function App() {
                 </h4>
                 <ul className="list-disc pl-4 space-y-1 text-slate-600">
                   <li><strong>Segunda Via do Documento:</strong> Esqueceu de baixar? No topo da página, clique em "2ª Via do Termo", digite seu protocolo e a senha criada no Passo 3.</li>
+                  <li><strong>Cancelamentos:</strong> Localize sua reserva no calendário, clique no ícone da lixeira e, em seguida, digite a senha criada no Passo 3.</li>
                   <li><strong>Finais de Semana:</strong> O sistema aceita agendamentos apenas em dias úteis (Segunda a Sexta).</li>
                 </ul>
               </div>
