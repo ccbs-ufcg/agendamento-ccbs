@@ -1071,7 +1071,7 @@ export function App() {
                   <span className="font-black text-slate-800 block text-[11px] uppercase mb-1">1. Usuários Externos</span>
                   <p className="text-slate-500 text-[11px]">Demais Centros da UFCG e instituições externas.</p>
                   <p className="mt-2 text-slate-700 font-medium">
-                    <strong>Solicitação:</strong> Baixe o Anexo II (Ofício de Solicitação) no portal do CCBS <a href="https://ccbs.ufcg.edu.br/index.php/agendamento-de-espacos-fisicos" target="_blank" rel="noopener noreferrer" className="text-blue-600 font-bold underline">assinador.iti.br</a>., preencha-o e envie para: <a href="mailto:secretaria.ccbs@ufcg.edu.br" className="text-blue-600 underline font-bold">secretaria.ccbs@ufcg.edu.br</a>.
+                    <strong>Solicitação:</strong> Baixe o Anexo II (Ofício de Solicitação) no portal do CCBS <a href="https://ccbs.ufcg.edu.br/index.php/agendamento-de-espacos-fisicos" target="_blank" rel="noopener noreferrer" className="text-blue-600 font-bold underline">ccbs.ufcg.edu.br</a>., preencha-o e envie para: <a href="mailto:secretaria.ccbs@ufcg.edu.br" className="text-blue-600 underline font-bold">secretaria.ccbs@ufcg.edu.br</a>.
                   </p>
                 </div>
 
