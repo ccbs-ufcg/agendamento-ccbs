@@ -213,13 +213,18 @@ export function App() {
     }
   };
 
+  // ==========================================
+  // OPÇÃO 1: BLOQUEAR SELEÇÃO DE FIM DE SEMANA NO CAMPO DATA
+  // ==========================================
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     
     if (name === 'data') {
       const d = new Date(value + 'T12:00:00');
+      // d.getDay(): 0 representa Domingo e 6 representa Sábado
       if (d.getDay() === 0 || d.getDay() === 6) {
         showToast('Agendamentos válidos apenas para dias úteis (Seg a Sex)!', 'error');
+        setFormData(prev => ({ ...prev, data: '' })); // Limpa o campo para forçar uma nova seleção válida
         return;
       }
     }
@@ -231,8 +236,18 @@ export function App() {
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
+  // ==========================================
+  // OPÇÃO 2: BLOQUEAR AÇÕES REALIZADAS NO PRÓPRIO FIM DE SEMANA
+  // ==========================================
   const handleBooking = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // REGRA DE SEGURANÇA: Verifica se hoje é sábado ou domingo
+    const diaHoje = new Date().getDay(); // 0 = Domingo, 6 = Sábado
+    if (diaHoje === 0 || diaHoje === 6) {
+      showToast('Não é possível realizar solicitações de agendamento no fim de semana (Sábado e Domingo).', 'error');
+      return;
+    }
     
     if (formData.auditorio === 'SALA DE REUNIÃO') {
       showToast('A Sala de Reunião está temporariamente indisponível.', 'error');
