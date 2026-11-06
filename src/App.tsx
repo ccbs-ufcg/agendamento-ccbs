@@ -28,7 +28,9 @@ import {
   HelpCircle,
   QrCode,
   Clock,
-  Check
+  Check,
+  Plus,
+  FileCheck
 } from 'lucide-react';
 
 // Importações oficiais do Firebase
@@ -61,6 +63,7 @@ const appId = 'ccbs-agendamento-final';
 const EMAILJS_SERVICE_ID = 'service_ccbs123';
 const EMAILJS_TEMPLATE_ID = 'template_bap0q9f';
 const EMAILJS_PUBLIC_KEY = 'GDyWQHi7TP21axsVa';
+const EMAIL_BIBLIOTECA = 'biblioteca.ccbs@setor.ufcg.edu.br';
 
 const AUDITORIOS = ['AUDITÓRIO', 'SALA DE REUNIÃO', 'SALA 01'];
 const HORARIOS = [
@@ -94,12 +97,30 @@ export function App() {
   const [showAdminUnlock, setShowAdminUnlock] = useState(false);
   const [showReprintModal, setShowReprintModal] = useState(false);
   const [showHelpModal, setShowHelpModal] = useState(false); 
+  const [showProcessModal, setShowProcessModal] = useState(false);
 
   // --- ESTADOS DOS FORMULÁRIOS ---
   const [cancelPassword, setCancelPassword] = useState('');
   const [adminUnlockPassword, setAdminUnlockPassword] = useState('');
   const [reprintId, setReprintId] = useState('');
   const [reprintPassword, setReprintPassword] = useState('');
+
+  // --- FORMULÁRIO DE AGENDAMENTO POR PROCESSO (ITEM 3) ---
+  const [processFormData, setProcessFormData] = useState({
+    nomeEvento: '',
+    processoSEI: '',
+    auditorio: 'SALA DE REUNIÃO',
+    requisitante: '',
+    cpf: '',
+    email: '',
+    telefone: '',
+    setor: '',
+    adminPassword: ''
+  });
+
+  const [regrasPeriodo, setRegrasPeriodo] = useState<any[]>([
+    { id: 1, diaSemana: '4', horaInicio: '13:00', horaFim: '16:00', dataInicio: '', dataFim: '' }
+  ]);
 
   // --- CONTROLO DE INTERFACE ---
   const [loading, setLoading] = useState(true);
@@ -126,6 +147,11 @@ export function App() {
     setor: '',
     senha: ''
   });
+
+  const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 4000);
+  };
 
   // ==========================================
   // 3. EFEITOS (AUTENTICAÇÃO E FIRESTORE)
@@ -181,76 +207,68 @@ export function App() {
   // ==========================================
   // 4. FUNÇÕES DE SUPORTE E ENVIO DE E-MAIL
   // ==========================================
-  // ==========================================
-  // FUNÇÃO DE ENVIO DE E-MAIL VIA EMAILJS
-  // ==========================================
   const enviarEmailLembrete = async (dadosReserva: any) => {
     try {
-      // Mapeamento dos parâmetros do template
       const templateParams = {
-        to_name: dadosReserva.requisitante,      // Nome do responsável
-        to_email: dadosReserva.email,            // E-mail do destinatário
-        reply_to: dadosReserva.email,            // Resposta direta ao solicitante
-        nome_evento: dadosReserva.nomeEvento,    // Nome da reunião ou evento
-        auditorio: dadosReserva.auditorio,        // Local reservado
-        data_evento: dadosReserva.data.split('-').reverse().join('/'), // Data (DD/MM/AAAA)
-        hora_inicio: dadosReserva.horaInicio,    // Hora inicial
-        hora_fim: dadosReserva.horaFim,          // Hora final
-        protocolo: dadosReserva.id               // Código de protocolo
+        to_name: dadosReserva.requisitante,
+        to_email: dadosReserva.email,
+        reply_to: dadosReserva.email,
+        nome_evento: dadosReserva.nomeEvento,
+        auditorio: dadosReserva.auditorio,
+        data_evento: dadosReserva.data.split('-').reverse().join('/'),
+        hora_inicio: dadosReserva.horaInicio,
+        hora_fim: dadosReserva.horaFim,
+        protocolo: dadosReserva.id
       };
 
-      // Disparo do e-mail
-      const res = await emailjs.send(
+      await emailjs.send(
         EMAILJS_SERVICE_ID,
         EMAILJS_TEMPLATE_ID,
         templateParams,
         EMAILJS_PUBLIC_KEY
       );
 
-      console.log('E-mail enviado com sucesso! Status:', res.status, res.text);
+      // ITEM 2: Envia cópia para o e-mail da biblioteca caso o local seja "SALA DE REUNIÃO"
+      if (dadosReserva.auditorio === 'SALA DE REUNIÃO') {
+        const templateParamsBiblioteca = {
+          ...templateParams,
+          to_name: 'Biblioteca CCBS',
+          to_email: EMAIL_BIBLIOTECA,
+          nome_evento: `[CÓPIA] ${dadosReserva.nomeEvento}`
+        };
+        await emailjs.send(
+          EMAILJS_SERVICE_ID,
+          EMAILJS_TEMPLATE_ID,
+          templateParamsBiblioteca,
+          EMAILJS_PUBLIC_KEY
+        );
+      }
     } catch (error) {
       console.error('Falha no envio via EmailJS:', error);
     }
   };
 
-  // ==========================================
-  // OPÇÃO 1: BLOQUEAR SELEÇÃO DE FIM DE SEMANA NO CAMPO DATA
-  // ==========================================
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     
     if (name === 'data') {
       const d = new Date(value + 'T12:00:00');
-      // d.getDay(): 0 representa Domingo e 6 representa Sábado
       if (d.getDay() === 0 || d.getDay() === 6) {
         showToast('Agendamentos válidos apenas para dias úteis (Seg a Sex)!', 'error');
-        setFormData(prev => ({ ...prev, data: '' })); // Limpa o campo para forçar uma nova seleção válida
+        setFormData(prev => ({ ...prev, data: '' }));
         return;
       }
     }
     
-    if (name === 'auditorio' && value === 'SALA DE REUNIÃO') {
-      showToast('A Sala de Reunião está temporariamente indisponível!', 'error');
-      return;
-    }
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
-  // ==========================================
-  // OPÇÃO 2: BLOQUEAR AÇÕES REALIZADAS NO PRÓPRIO FIM DE SEMANA
-  // ==========================================
   const handleBooking = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // REGRA DE SEGURANÇA: Verifica se hoje é sábado ou domingo
-    const diaHoje = new Date().getDay(); // 0 = Domingo, 6 = Sábado
+    const diaHoje = new Date().getDay();
     if (diaHoje === 0 || diaHoje === 6) {
       showToast('Não é possível realizar solicitações de agendamento no fim de semana (Sábado e Domingo).', 'error');
-      return;
-    }
-    
-    if (formData.auditorio === 'SALA DE REUNIÃO') {
-      showToast('A Sala de Reunião está temporariamente indisponível.', 'error');
       return;
     }
 
@@ -302,7 +320,131 @@ export function App() {
     }
   };
 
-  // Alteração de status pelo Administrador
+  // ==========================================
+  // FUNÇÕES PARA AGENDAMENTO POR PROCESSO (ITEM 3)
+  // ==========================================
+  const handleAddRegra = () => {
+    setRegrasPeriodo(prev => [
+      ...prev,
+      { id: Date.now(), diaSemana: '4', horaInicio: '13:00', horaFim: '16:00', dataInicio: '', dataFim: '' }
+    ]);
+  };
+
+  const handleRemoveRegra = (id: number) => {
+    if (regrasPeriodo.length === 1) {
+      showToast('Defina ao menos uma regra de período.', 'error');
+      return;
+    }
+    setRegrasPeriodo(prev => prev.filter(r => r.id !== id));
+  };
+
+  const handleRegraChange = (id: number, field: string, value: string) => {
+    setRegrasPeriodo(prev => prev.map(r => r.id === id ? { ...r, [field]: value } : r));
+  };
+
+  const handleProcessBookingSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    // Item 3e: Validação da senha de administrador
+    if (processFormData.adminPassword !== MASTER_PASSWORD) {
+      showToast('Senha de administrador incorreta!', 'error');
+      return;
+    }
+
+    if (!processFormData.nomeEvento || !processFormData.processoSEI || !processFormData.requisitante) {
+      showToast('Preencha os dados do evento e número do processo SEI.', 'error');
+      return;
+    }
+
+    let agendamentosGerados: any[] = [];
+    let conflitosDetectados = 0;
+
+    // Item 3c & 3d: Geração dos dias do período com base no critério selecionado
+    for (const regra of regrasPeriodo) {
+      if (!regra.dataInicio || !regra.dataFim) {
+        showToast('Preencha as datas de início e fim em todas as regras de período!', 'error');
+        return;
+      }
+
+      const dInicio = new Date(regra.dataInicio + 'T00:00:00');
+      const dFim = new Date(regra.dataFim + 'T00:00:00');
+      const targetDay = parseInt(regra.diaSemana, 10);
+
+      let curr = new Date(dInicio);
+      while (curr <= dFim) {
+        if (curr.getDay() === targetDay) {
+          const dateStr = curr.toISOString().split('T')[0];
+
+          // Verifica se já existe agendamento que colida
+          const conflito = reservas.find(r => 
+            r.auditorio === processFormData.auditorio && 
+            r.data === dateStr && 
+            ((regra.horaInicio >= r.horaInicio && regra.horaInicio < r.horaFim) ||
+             (regra.horaFim > r.horaInicio && regra.horaFim <= r.horaFim))
+          );
+
+          if (!conflito) {
+            const id = Math.random().toString(36).substr(2, 9).toUpperCase();
+            agendamentosGerados.push({
+              id,
+              auditorio: processFormData.auditorio,
+              data: dateStr,
+              horaInicio: regra.horaInicio,
+              horaFim: regra.horaFim,
+              nomeEvento: `${processFormData.nomeEvento} (Proc. SEI: ${processFormData.processoSEI})`,
+              processoSEI: processFormData.processoSEI,
+              requisitante: processFormData.requisitante,
+              cpf: processFormData.cpf || 'SEI/UFCG',
+              email: processFormData.email,
+              telefone: processFormData.telefone,
+              setor: processFormData.setor,
+              senha: MASTER_PASSWORD,
+              status: 'Confirmado',
+              dataCriacao: new Date().toLocaleString('pt-BR')
+            });
+          } else {
+            conflitosDetectados++;
+          }
+        }
+        curr.setDate(curr.getDate() + 1);
+      }
+    }
+
+    if (agendamentosGerados.length === 0) {
+      showToast('Nenhum agendamento pôde ser gerado. Verifique conflitos ou intervalo de datas.', 'error');
+      return;
+    }
+
+    try {
+      if (!db) return;
+
+      for (const res of agendamentosGerados) {
+        const docRef = doc(db, 'artifacts', appId as string, 'public', 'data', 'reservas_ccbs', res.id);
+        await setDoc(docRef, res);
+        enviarEmailLembrete(res);
+      }
+
+      showToast(`${agendamentosGerados.length} agendamento(s) por processo gerado(s) com sucesso! ${conflitosDetectados > 0 ? `(${conflitosDetectados} ignorados por conflito)` : ''}`, 'success');
+      setShowProcessModal(false);
+      
+      // Reset
+      setProcessFormData({
+        nomeEvento: '',
+        processoSEI: '',
+        auditorio: 'SALA DE REUNIÃO',
+        requisitante: '',
+        cpf: '',
+        email: '',
+        telefone: '',
+        setor: '',
+        adminPassword: ''
+      });
+    } catch (err) {
+      console.error(err);
+      showToast('Erro ao salvar agendamentos recorrentes.', 'error');
+    }
+  };
+
   const handleAlternarStatus = async (reservaId: string, statusAtual: string) => {
     if (!isAdminMode) {
       showToast('Apenas administradores podem alterar o status.', 'error');
@@ -468,11 +610,6 @@ export function App() {
     return 'bg-slate-600';
   };
 
-  const copiarParaTransferencia = (texto: string) => {
-    navigator.clipboard.writeText(texto);
-    showToast('Código de protocolo copiado! 📋');
-  };
-
   const renderCalendar = () => {
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
@@ -540,7 +677,15 @@ export function App() {
             </div>
           </div>
           
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
+            {/* ITEM 3: Botão Agendamento por Processo posicionado conforme a imagem do usuário */}
+            <button 
+              onClick={() => setShowProcessModal(true)}
+              className="bg-emerald-400 hover:bg-emerald-300 text-slate-900 font-black text-[11px] uppercase px-4 py-2 rounded-xl shadow transition-all flex items-center gap-2 cursor-pointer"
+            >
+              <FileCheck className="w-4 h-4" /> Agendamento por processo
+            </button>
+
             <button 
               onClick={() => setShowReprintModal(true)}
               className="bg-white text-blue-700 hover:bg-blue-50 font-black text-[11px] uppercase px-4 py-2 rounded-xl shadow transition-all flex items-center gap-2 cursor-pointer"
@@ -576,15 +721,13 @@ export function App() {
               <div className="space-y-3">
                 <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Local & Data</label>
                 
+                {/* ITEM 1: Sala de Reunião totalmente liberada */}
                 <select name="auditorio" value={formData.auditorio} onChange={handleChange} className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold uppercase text-xs focus:border-blue-600 outline-none transition-all">
-                  {AUDITORIOS.map(a => {
-                    const isIndisponivel = a === 'SALA DE REUNIÃO';
-                    return (
-                      <option key={a} value={a} disabled={isIndisponivel} className={isIndisponivel ? 'text-red-400 italic' : ''}>
-                        {isIndisponivel ? `${a} (INDISPONÍVEL)` : a}
-                      </option>
-                    );
-                  })}
+                  {AUDITORIOS.map(a => (
+                    <option key={a} value={a}>
+                      {a}
+                    </option>
+                  ))}
                 </select>
                 
                 <input type="date" name="data" value={formData.data} onChange={handleChange} className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none focus:border-blue-600 font-bold" />
@@ -711,66 +854,29 @@ export function App() {
                        </div>
 
                        <h5 className="text-lg font-black uppercase tracking-tight text-white mb-1">{res.nomeEvento}</h5>
-                       <div className="flex items-center gap-2 text-xs text-slate-300 mb-2">
-                         <User className="w-3 h-3" /> {res.requisitante} <span className="opacity-50">({res.setor})</span>
-                       </div>
-                       
-                       <div className="flex items-center gap-2 text-[11px] font-bold text-slate-400 mb-3 bg-white/5 px-2.5 py-1.5 rounded-xl w-fit border border-white/5">
-                         <span>Protocolo: <span className="text-blue-400 select-all font-mono uppercase tracking-wide">{res.id}</span></span>
-                         <button 
-                           onClick={() => copiarParaTransferencia(res.id)} 
-                           className="p-1 hover:bg-white/10 text-slate-300 hover:text-white rounded transition-all active:scale-90"
-                           title="Copiar Protocolo"
-                         >
-                           <Copy className="w-3 h-3" />
-                         </button>
-                       </div>
+                       <p className="text-xs text-slate-300 font-bold mb-3">Resp: {res.requisitante}</p>
 
-                       {/* NOVO CAMPO: STATUS DO AGENDAMENTO */}
-                       <div className="mb-3">
-                         <div className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase border ${
-                           isConfirmado 
-                             ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' 
-                             : 'bg-amber-500/20 text-amber-400 border-amber-500/30'
-                         }`}>
-                           {isConfirmado ? <Check className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
-                           <span>Status: {statusReserva}</span>
-                         </div>
-                       </div>
-
-                       {/* BOTÃO EXCLUSIVO PARA O ADMINISTRADOR MUDAR O STATUS */}
-                       {isAdminMode && (
-                         <div className="mb-3 pt-2 border-t border-white/5">
-                           <button
-                             onClick={() => handleAlternarStatus(res.id, statusReserva)}
-                             className={`w-full py-2 px-3 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer ${
-                               isConfirmado 
-                                 ? 'bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 border border-amber-500/40' 
-                                 : 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-lg shadow-emerald-600/20'
-                             }`}
-                           >
-                             {isConfirmado ? (
-                               <> <Clock className="w-3 h-3" /> Mudar para Aguardando Confirmação </>
-                             ) : (
-                               <> <Check className="w-3 h-3" /> Confirmar Agendamento (Admin) </>
-                             )}
-                           </button>
+                       {res.processoSEI && (
+                         <div className="text-[10px] bg-slate-800 text-blue-300 px-2 py-1 rounded font-mono mb-2 inline-block">
+                           SEI: {res.processoSEI}
                          </div>
                        )}
 
-                       <div className="pt-3 border-t border-white/10">
-                         {isAdminMode ? (
-                           <div className="space-y-1">
-                             <p className="text-[10px] text-slate-400 flex items-center gap-2"><CreditCard className="w-3 h-3" /> CPF: {res.cpf}</p>
-                             <p className="text-[10px] text-slate-400 flex items-center gap-2"><Mail className="w-3 h-3" /> {res.email}</p>
-                             <p className="text-[10px] text-slate-400 flex items-center gap-2"><Phone className="w-3 h-3" /> {res.telefone}</p>
-                           </div>
-                         ) : (
-                           <div className="flex items-center gap-2 text-[10px] text-slate-500 italic">
-                             <Lock className="w-3 h-3" /> Contatos Ocultos
-                           </div>
-                         )}
-                       </div>
+                       {isAdminMode && (
+                         <div className="pt-3 border-t border-white/10 mt-3 space-y-1 text-xs text-slate-300">
+                           <p><strong>CPF:</strong> {res.cpf}</p>
+                           <p><strong>E-mail:</strong> {res.email}</p>
+                           <p><strong>Tel:</strong> {res.telefone}</p>
+                           <p><strong>Setor:</strong> {res.setor}</p>
+                           
+                           <button 
+                             onClick={() => handleAlternarStatus(res.id, statusReserva)}
+                             className={`mt-2 w-full py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all ${isConfirmado ? 'bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30' : 'bg-amber-500/20 text-amber-300 hover:bg-amber-500/30'}`}
+                           >
+                             Status: {statusReserva} (Clique p/ alternar)
+                           </button>
+                         </div>
+                       )}
                      </div>
                    );
                  })}
@@ -780,412 +886,65 @@ export function App() {
         </div>
       </main>
 
-      {/* RODAPÉ */}
-      <footer className="mt-auto border-t border-slate-200 bg-white print:hidden">
-        <div className="max-w-7xl mx-auto px-4 py-6 flex flex-col md:flex-row items-center justify-between gap-4">
-          <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">
-            Desenvolvido por: <span className="text-blue-600">Renato de Freitas Souza</span> | © 2026 Copyright
-          </p>
-          <a href="https://github.com/renatofreitas-create/agendamento.ccbs.git" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-slate-400 hover:text-slate-800 transition-all text-xs font-bold bg-slate-100 px-3 py-2 rounded-lg">
-            <Github className="w-4 h-4" /> Repositório Oficial
-          </a>
-        </div>
-      </footer>
-
-      {/* MODAIS AUXILIARES */}
-      {showCancelModal && (
-        <div className="fixed inset-0 bg-slate-900/95 backdrop-blur-md z-[130] flex items-center justify-center p-4 print:hidden">
-          <div className="bg-white rounded-[2rem] p-8 max-w-sm w-full shadow-2xl text-center">
-            <div className="bg-red-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-red-600">
-              <AlertCircle className="w-7 h-7" />
-            </div>
-            <h3 className="text-lg font-black uppercase mb-1">Confirmação</h3>
-            <p className="text-slate-500 text-xs mb-6">
-              Insira a senha do utilizador ou a senha mestra para cancelar o evento <strong className="text-slate-800">"{showCancelModal.nomeEvento}"</strong>.
-            </p>
-            
-            <div className="space-y-3 text-left mb-6">
-              <input 
-                type="password" 
-                value={cancelPassword} 
-                onChange={(e) => setCancelPassword(e.target.value)} 
-                className="w-full p-3.5 bg-slate-50 border-2 border-slate-100 rounded-xl font-black tracking-widest focus:border-red-500 outline-none text-center"
-                placeholder="••••••••" 
-              />
-            </div>
-
-            <div className="flex flex-col gap-2">
-              <button 
-                onClick={confirmCancelation} 
-                className="w-full py-4 bg-red-600 text-white font-black rounded-xl uppercase tracking-widest text-[10px] hover:bg-red-700 shadow-md shadow-red-500/20 transition-all flex items-center justify-center gap-2 cursor-pointer"
-              >
-                Remover Definitivamente
-              </button>
-              <button 
-                onClick={() => { setShowCancelModal(null); setCancelPassword(''); }} 
-                className="py-2 text-slate-400 font-bold uppercase text-[9px] hover:text-slate-600"
-              >
-                Manter Reserva
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showReprintModal && (
-        <div className="fixed inset-0 bg-slate-900/95 backdrop-blur-md z-[140] flex items-center justify-center p-4 print:hidden">
-          <div className="bg-white rounded-[2rem] p-8 max-w-md w-full shadow-2xl text-center relative">
-            <button 
-              onClick={() => { setShowReprintModal(false); setReprintId(''); setReprintPassword(''); }}
-              className="absolute top-6 right-6 p-2 text-slate-400 hover:text-slate-600 rounded-full transition-all"
-            >
-              <X className="w-5 h-5" />
-            </button>
-
-            <div className="bg-blue-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-blue-600">
-              <Search className="w-7 h-7" />
-            </div>
-
-            <h3 className="text-xl font-black uppercase text-slate-800 mb-1">Segunda Via do Termo</h3>
-            <p className="text-slate-500 text-xs mb-6">
-              Insira o código do protocolo e a sua senha para recuperar o documento.
-            </p>
-
-            <div className="space-y-4 text-left mb-6">
-              <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase ml-1 block mb-1">Código de Protocolo</label>
-                <input 
-                  type="text" 
-                  value={reprintId} 
-                  onChange={(e) => setReprintId(e.target.value)} 
-                  placeholder="EX: P55GA8DDG" 
-                  className="w-full p-3.5 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold uppercase text-center focus:border-blue-600 outline-none text-sm tracking-wider"
-                />
+      {/* ========================================== */}
+      {/* MODAL ITEM 3: AGENDAMENTO POR PROCESSO    */}
+      {/* ========================================== */}
+      {showProcessModal && (
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 max-h-[90vh] flex flex-col">
+            <div className="bg-blue-800 p-6 text-white flex justify-between items-center">
+              <div className="flex items-center gap-3">
+                <FileCheck className="w-6 h-6 text-emerald-400" />
+                <h3 className="font-black text-lg uppercase tracking-tight">Agendamento por Processo</h3>
               </div>
-
-              <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase ml-1 block mb-1">Senha do Utilizador</label>
-                <input 
-                  type="password" 
-                  value={reprintPassword} 
-                  onChange={(e) => setReprintPassword(e.target.value)} 
-                  placeholder="••••••••" 
-                  className="w-full p-3.5 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold text-center focus:border-blue-600 outline-none text-sm tracking-widest"
-                />
-              </div>
+              <button onClick={() => setShowProcessModal(false)} className="p-2 hover:bg-white/10 rounded-full transition-all"><X className="w-5 h-5" /></button>
             </div>
 
-            <div className="flex flex-col gap-3">
-              <button 
-                onClick={handleFetchSecondCopy} 
-                disabled={loadingSecondCopy}
-                className="w-full py-4 bg-blue-600 text-white font-black rounded-xl uppercase tracking-widest text-xs hover:bg-blue-700 shadow-lg shadow-blue-500/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
-              >
-                {loadingSecondCopy ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
-                {loadingSecondCopy ? 'A procurar...' : 'Buscar e Gerar Termo'}
-              </button>
-
-              <button 
-                onClick={() => { setShowReprintModal(false); setReprintId(''); setReprintPassword(''); }} 
-                className="py-2 text-slate-400 font-bold uppercase text-[10px] hover:text-slate-600 transition-all"
-              >
-                Voltar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* TERMO DE RESPONSABILIDADE FORMAL (MODELO OFICIAL) */}
-      {showReceipt && (
-        <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[100] flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-none md:rounded-[2rem] w-full max-w-3xl shadow-2xl overflow-hidden my-auto">
-            
-            <div className="bg-yellow-100 border-b-2 border-yellow-300 p-4 text-center print:hidden">
-              <p className="text-yellow-800 text-sm font-bold flex items-center justify-center gap-2">
-                <AlertCircle className="w-5 h-5" /> 
-                Atenção: Baixe este termo em PDF, assine digitalmente via GOV.BR (http://assinador.iti.br/) e envie para: reservaccbs@gmail.com
-              </p>
-            </div>
-
-            <div 
-              className="p-10 space-y-8" 
-              ref={termoRef} 
-              style={{ backgroundColor: '#ffffff', color: '#000000', width: '100%' }}
-            >
-              <div className="flex justify-between items-center pb-4" style={{ borderBottom: '1px solid #e2e8f0' }}>
-                 <img src={UFCG_LOGO} alt="UFCG" className="h-14 w-14 object-contain bg-white" />
-                 <div className="text-center flex-1 px-4">
-                   <h2 className="text-[14px] font-bold uppercase tracking-tight text-black leading-tight" style={{ color: '#000000' }}>
-                     UNIVERSIDADE FEDERAL DE CAMPINA GRANDE - UFCG
-                   </h2>
-                   <h3 className="text-[14px] font-bold text-black uppercase leading-normal" style={{ color: '#000000' }}>
-                     CENTRO DE CIÊNCIAS BIOLÓGICAS E DA SAÚDE - CCBS
-                   </h3>
-                   <p className="text-[14px] font-black mt-2 uppercase tracking-wide text-black" style={{ color: '#000000' }}>
-                     TERMO DE RESPONSABILIDADE PARA UTILIZAÇÃO DE ESPAÇO
-                   </p>
-                 </div>
-                 <img src={CCBS_LOGO} alt="CCBS" className="w-[2cm] h-auto object-contain bg-white" />
-              </div>
-
-              <div className="text-xs space-y-4 text-black leading-relaxed" style={{ color: '#000000' }}>
-                <p>
-                  Eu, <strong>{showReceipt.requisitante || showReceipt.requinisitante}</strong>, CPF nº <strong>{showReceipt.cpf}</strong>, 
-                  E-mail: <strong>{showReceipt.email}</strong> e contato: <strong>{showReceipt.telefone}</strong>, 
-                  servidor(a) vinculado(a) à unidade <strong>{showReceipt.setor || 'Não informado'}</strong>, 
-                  na condição de responsável pelo evento <strong>"{showReceipt.nomeEvento}"</strong>, a ser 
-                  realizado no <strong>{showReceipt.auditorio}</strong> do Centro de Ciências Biológicas e da Saúde (CCBS/UFCG), 
-                  no dia <strong>{showReceipt.data ? showReceipt.data.split('-').reverse().join('/') : ''}</strong>, das <strong>{showReceipt.horaInicio}</strong> às <strong>{showReceipt.horaFim} h</strong>, 
-                  assumo integral responsabilidade pela utilização do referido espaço durante o período autorizado.
-                </p>
-
-                <p className="font-bold pt-2">Declaro estar ciente e de acordo com as seguintes condições:</p>
-
-                <div className="space-y-3" style={{ color: '#000000' }}>
-                  <p><strong>CLÁUSULA PRIMEIRA - DA CONSERVAÇÃO DO PATRIMÔNIO:</strong> Comprometo-me a zelar pela conservação das instalações, mobiliários, equipamentos e demais bens patrimoniais existentes no {showReceipt.auditorio} do CCBS, responsabilizando-me por danos decorrentes de uso inadequado, negligência, imprudência ou imperícia dos participantes do evento sob minha responsabilidade.</p>
-                  <p><strong>CLÁUSULA SEGUNDA - DA UTILIZAÇÃO DO ESPAÇO:</strong> Comprometo-me a utilizar o espaço exclusivamente para a finalidade previamente informada e autorizada pela Direção do CCBS, observando as normas institucionais vigentes e as orientações da Administração do Centro.</p>
-                  <p><strong>CLÁUSULA TERCEIRA - DA ORGANIZAÇÃO E LIMPEZA:</strong> Ao término do evento, comprometo-me a entregar o espaço em condições adequadas de organização, conservação e limpeza, preservando a disposição original do mobiliário e dos equipamentos disponibilizados.</p>
-                  <p><strong>CLÁUSULA QUARTA - DOS EQUIPAMENTOS E RECURSOS:</strong> Declaro ter recebido, em perfeito estado de funcionamento, os equipamentos eventualmente disponibilizados para o evento, responsabilizando-me por sua correta utilização e devolução nas mesmas condições iniciais. Ao término do evento comprometo-me a desligar as luzes e aparelhos de ar-condicionado e de informática.</p>
-                  <p><strong>CLÁUSULA QUINTA - DA SEGURANÇA:</strong> Comprometo-me a respeitar a capacidade máxima do local, bem como a não realizar atividades que possam colocar em risco a integridade física dos participantes ou do patrimônio público.</p>
-                  <div>
-                    <strong>CLÁUSULA SEXTA - DAS VEDAÇÕES:</strong> É vedado:
-                    <ul className="list-none pl-4 mt-1 space-y-1">
-                      <li>I - Utilizar o espaço para finalidade diversa da autorizada;</li>
-                      <li>II - Promover atividades que contrariem as normas institucionais da UFCG;</li>
-                      <li>III - Fixar materiais em paredes, portas, janelas, mobiliários ou equipamentos de forma que causem danos ao patrimônio;</li>
-                      <li>IV - Alterar instalações elétricas, de rede, sonorização ou quaisquer outros sistemas sem autorização prévia da Administração do CCBS.</li>
-                    </ul>
-                  </div>
-                  <p><strong>CLÁUSULA SÉTIMA - DAS RESPONSABILIDADES:</strong> O descumprimento das disposições deste Termo poderá implicar a suspensão de futuras autorizações de uso, sem prejuízo da apuração de responsabilidades administrativas, civis e legais cabíveis, bem como da obrigação de ressarcimento ao erário em caso de dano ao patrimônio público.</p>
-                </div>
-
-                <p className="pt-4 text-center">Por estar de acordo com as condições acima estabelecidas, firmo o presente Termo de Responsabilidade.</p>
-
-                <div className="text-center pt-6 space-y-8">
-                  <p>Campina Grande/PB, {formatarDataExtenso(showReceipt.dataCriacao)}</p>
-                  <div className="w-1/2 mx-auto pt-2 mt-12" style={{ borderTop: '1px solid #000000' }}>
-                    <p className="font-bold uppercase text-xs">RESPONSÁVEL PELO EVENTO: {showReceipt.requisitante}</p>
-                    <p className="text-xs">Assinatura Digital GOV.BR</p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-8 pt-4 flex justify-between items-center opacity-50" style={{ borderTop: '1px solid #e2e8f0' }}>
-                <div className="flex gap-2 items-center">
-                  <QrCode className="w-8 h-8 text-black" />
-                  <div style={{ color: '#000000' }}>
-                    <p className="text-[8px] font-black uppercase">PROTOCOLO ELETRÔNICO: #{showReceipt.id}</p>
-                    <p className="text-[8px] font-bold">Emitido em: {showReceipt.dataCriacao}</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="p-8 bg-slate-50 flex gap-4 border-t border-slate-200 print:hidden">
-              <button
-                onClick={handleDownloadPDF}
-                disabled={generatingPDF}
-                className="flex-1 py-4 bg-blue-700 text-white font-black rounded-xl flex items-center justify-center gap-2 hover:bg-blue-800 transition-all uppercase tracking-widest text-xs disabled:opacity-50 cursor-pointer"
-              >
-                {generatingPDF ? <Loader2 className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
-                {generatingPDF ? 'Gerando PDF...' : 'Baixar Termo PDF'}
-              </button>
-              <button onClick={() => setShowReceipt(null)} className="px-8 py-4 bg-white border-2 border-slate-200 text-slate-600 font-black rounded-xl hover:bg-slate-100 transition-all uppercase tracking-widest text-xs cursor-pointer">
-                Fechar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showAdminUnlock && (
-        <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[140] flex items-center justify-center p-4 print:hidden">
-          <div className="bg-white rounded-[2rem] p-8 max-w-sm w-full shadow-2xl text-center">
-            <div className="bg-amber-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-amber-600">
-              <Shield className="w-7 h-7" />
-            </div>
-            <h3 className="text-lg font-black uppercase mb-1">Modo Administrador</h3>
-            <p className="text-slate-500 text-xs mb-6">Insira a Senha Mestra para desbloquear os dados de contato e alterar o status das reservas.</p>
-            
-            <input 
-              type="password" 
-              value={adminUnlockPassword} 
-              onChange={(e) => setAdminUnlockPassword(e.target.value)} 
-              placeholder="Senha Mestra" 
-              className="w-full p-3.5 bg-slate-50 border-2 border-slate-100 rounded-xl font-black text-center focus:border-amber-500 outline-none mb-4"
-            />
-
-            <div className="flex flex-col gap-2">
-              <button 
-                onClick={handleAdminUnlock} 
-                className="w-full py-4 bg-amber-600 text-white font-black rounded-xl uppercase tracking-widest text-[10px] hover:bg-amber-700 transition-all cursor-pointer"
-              >
-                Acessar Dados / Administrar
-              </button>
-              <button 
-                onClick={() => { setShowAdminUnlock(false); setAdminUnlockPassword(''); }} 
-                className="py-2 text-slate-400 font-bold uppercase text-[9px]"
-              >
-                Cancelar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL DA CENTRAL DE AJUDA COMPLETO */}
-      {showHelpModal && (
-        <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[140] flex items-center justify-center p-4 print:hidden">
-          <div className="bg-white rounded-[2rem] p-6 md:p-8 max-w-2xl w-full shadow-2xl text-left relative flex flex-col max-h-[90vh]">
-            
-            <button 
-              onClick={() => setShowHelpModal(false)}
-              className="absolute top-6 right-6 p-2 text-slate-400 hover:text-slate-600 rounded-full transition-all cursor-pointer"
-              title="Fechar Central de Ajuda"
-            >
-              <X className="w-6 h-6" />
-            </button>
-
-            <div className="flex items-center gap-3 mb-4 pb-4 border-b border-slate-100 flex-shrink-0">
-              <div className="bg-blue-100 p-3 rounded-2xl text-blue-700">
-                <HelpCircle className="w-7 h-7" />
-              </div>
-              <div>
-                <h3 className="text-xl font-black uppercase text-slate-800">Central de Ajuda</h3>
-                <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Guia Passo a Passo de Agendamento • CCBS/UFCG</p>
-              </div>
-            </div>
-
-            <div className="space-y-6 text-xs text-slate-600 leading-relaxed overflow-y-auto pr-2 flex-1 scrollbar-thin">
+            <form onSubmit={handleProcessBookingSubmit} className="p-6 overflow-y-auto space-y-5">
               
-              <div className="bg-blue-50/60 p-4 rounded-2xl border border-blue-100">
-                <p className="font-bold text-blue-900 text-sm mb-1">📅 Como Agendar um Espaço no CCBS/UFCG</p>
-                <p className="text-slate-700">
-                  Este guia vai te ensinar, de forma muito simples, como reservar o <strong>Auditório</strong>, a <strong>Sala de Reunião</strong> ou a <strong>Sala 01</strong>, além de como baixar o seu documento de confirmação.
-                </p>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                  <span className="font-black text-slate-800 block text-[11px] uppercase mb-1">1. Usuários Externos</span>
-                  <p className="text-slate-500 text-[11px]">Demais Centros da UFCG e instituições externas.</p>
-                  <p className="mt-2 text-slate-700 font-medium">
-                    <strong>Solicitação:</strong> Baixe o Anexo II (Ofício de Solicitação) no portal do CCBS <a href="https://ccbs.ufcg.edu.br/index.php/agendamento-de-espacos-fisicos" target="_blank" rel="noopener noreferrer" className="text-blue-600 font-bold underline">ccbs.ufcg.edu.br</a>., preencha-o e envie para: <a href="mailto:secretaria.ccbs@ufcg.edu.br" className="text-blue-600 underline font-bold">secretaria.ccbs@ufcg.edu.br</a>.
-                  </p>
+              {/* Item 3a: Nome do Evento e Item 3b: Número do Processo SEI */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[10px] font-black text-slate-500 uppercase">Nome do Evento *</label>
+                  <input 
+                    type="text" 
+                    value={processFormData.nomeEvento} 
+                    onChange={e => setProcessFormData({...processFormData, nomeEvento: e.target.value})} 
+                    placeholder="Ex: Reunião do Colegiado" 
+                    required 
+                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm outline-none focus:border-blue-600"
+                  />
                 </div>
-
-                <div className="bg-blue-50/40 p-4 rounded-2xl border border-blue-100">
-                  <span className="font-black text-blue-900 block text-[11px] uppercase mb-1">2. Usuários Internos (CCBS/UFCG)</span>
-                  <p className="text-slate-500 text-[11px]">Docentes, técnicos administrativos e estudantes vinculados ao Centro.</p>
-                  <p className="mt-2 text-slate-700 font-medium">
-                    Faça o agendamento diretamente por esta plataforma seguindo o passo a passo abaixo.
-                  </p>
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                <h4 className="font-black text-slate-800 uppercase text-xs tracking-wider border-b pb-1">Passo a Passo do Agendamento On-line</h4>
-
-                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-1">
-                  <p className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
-                    <span>🕒</span> Passo 1: Olhar o Calendário (Ver se o dia está livre)
-                  </p>
-                  <p>
-                    Antes de preencher qualquer papel, olhe para o lado direito da tela onde fica o Calendário. Use as setinhas azuladas (&lt; e &gt;) perto do nome do mês para mudar de mês se precisar. Dias que já possuem compromissos mostram uma barrinha colorida com o horário. Clique em cima do dia desejado para ver os detalhes. Se o seu horário estiver livre, siga para o Passo 2!
-                  </p>
-                </div>
-
-                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-1">
-                  <p className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
-                    <span>✍️</span> Passo 2: Preencher o Formulário (Lado Esquerdo da Tela)
-                  </p>
-                  <p>No painel "Novo Agendamento", preencha os campos na ordem:</p>
-                  <ul className="list-disc pl-4 space-y-1 mt-1 text-slate-600">
-                    <li><strong>Local & Data:</strong> Escolha o espaço e a data do evento.</li>
-                    <li><strong>Início e Fim:</strong> Escolha o horário de início e término.</li>
-                    <li><strong>Evento:</strong> Digite o nome ou assunto do evento (Ex: Defesa de TCC, Palestra).</li>
-                    <li><strong>Responsável:</strong> Digite seu nome completo.</li>
-                    <li><strong>Documentos e Contato:</strong> Preencha CPF, Telefone com DDD e E-mail.</li>
-                    <li><strong>Setor / Departamento:</strong> Digite a qual setor da UFCG você pertence (Ex: DC-CCBS).</li>
-                  </ul>
-                </div>
-
-                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-1">
-                  <p className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
-                    <span>🔒</span> Passo 3: Criar uma Senha de Segurança
-                  </p>
-                  <p>
-                    No final do formulário, digite uma senha simples de sua escolha no campo "Senha p/ Cancelamento". Guarde essa senha! Ela será exigida se você precisar cancelar o agendamento ou emitir a 2ª via do documento.
-                  </p>
-                </div>
-
-                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-1">
-                  <p className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
-                    <span>🚀</span> Passo 4: Confirmar o Agendamento
-                  </p>
-                  <p>
-                    Clique no botão azul "Confirmar Agendamento". Se der tudo certo, uma mensagem de sucesso aparecerá e o Termo de Responsabilidade se abrirá na tela.
-                  </p>
-                </div>
-
-                <div className="bg-amber-50 p-4 rounded-2xl border border-amber-200 text-amber-900 space-y-2">
-                  <p className="font-black text-xs uppercase flex items-center gap-1.5 text-amber-900">
-                    <span>📄</span> Passo 5: Baixar o Termo em PDF e Enviar (Obrigatório)
-                  </p>
-                  <p>
-                    Clique no botão <strong>"Baixar Termo PDF"</strong> e depois em "Fechar".
-                  </p>
-                  <div className="bg-white/80 p-3 rounded-xl border border-amber-200 text-xs space-y-1">
-                    <p className="font-bold text-slate-800">O que fazer com o arquivo baixado?</p>
-                    <ol className="list-decimal pl-4 space-y-1 text-slate-700">
-                      <li>Acesse o site do GOV.BR: <a href="https://assinador.iti.br" target="_blank" rel="noopener noreferrer" className="text-blue-600 font-bold underline">assinador.iti.br</a>.</li>
-                      <li>Entre com sua conta do governo e assine o PDF digitalmente.</li>
-                      <li>
-                        Conforme a <strong>Resolução CONSAD/CCBS n° 01/2026</strong>, envie o termo assinado para: <a href="mailto:reservaccbs@gmail.com" className="font-bold text-blue-700 underline">reservaccbs@gmail.com</a> em até <strong>48 horas</strong>, sob pena de cancelamento da reserva.
-                      </li>
-                    </ol>
-                  </div>
+                <div>
+                  <label className="text-[10px] font-black text-slate-500 uppercase">Número do Processo SEI *</label>
+                  <input 
+                    type="text" 
+                    value={processFormData.processoSEI} 
+                    onChange={e => setProcessFormData({...processFormData, processoSEI: e.target.value})} 
+                    placeholder="Ex: 23096.000000/2026-00" 
+                    required 
+                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-mono text-sm outline-none focus:border-blue-600"
+                  />
                 </div>
               </div>
 
-              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-2">
-                <h4 className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
-                  <span>💡</span> Dicas Úteis
-                </h4>
-                <ul className="list-disc pl-4 space-y-1 text-slate-600">
-                  <li><strong>Segunda Via do Documento:</strong> Esqueceu de baixar? No topo da página, clique em "2ª Via do Termo", digite seu protocolo e a senha criada no Passo 3.</li>
-                  <li><strong>Cancelamentos:</strong> Localize sua reserva no calendário, clique no ícone da lixeira e, em seguida, digite a senha criada no Passo 3.</li>
-                  <li><strong>Finais de Semana:</strong> O sistema aceita agendamentos apenas em dias úteis (Segunda a Sexta).</li>
-                </ul>
-              </div>
-
-              <div className="bg-slate-900 text-white p-4 rounded-2xl space-y-2">
-                <h4 className="font-black uppercase text-[11px] text-blue-400 tracking-wider">📞 Contatos Oficiais</h4>
-                <div className="space-y-1 text-[11px]">
-                  <p><strong>Envio do Termo de Responsabilidade:</strong> <a href="mailto:reservaccbs@gmail.com" className="text-blue-300 underline font-mono">reservaccbs@gmail.com</a></p>
-                  <p><strong>Dúvidas e Sugestões:</strong> <a href="mailto:renato.freitas@tecnico.ufcg.edu.br" className="text-blue-300 underline font-mono">renato.freitas@tecnico.ufcg.edu.br</a></p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[10px] font-black text-slate-500 uppercase">Ambiente *</label>
+                  <select 
+                    value={processFormData.auditorio} 
+                    onChange={e => setProcessFormData({...processFormData, auditorio: e.target.value})}
+                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm outline-none focus:border-blue-600"
+                  >
+                    {AUDITORIOS.map(a => <option key={a} value={a}>{a}</option>)}
+                  </select>
                 </div>
-              </div>
-
-            </div>
-
-            <div className="pt-4 mt-2 border-t border-slate-100 flex-shrink-0">
-              <button 
-                onClick={() => setShowHelpModal(false)} 
-                className="w-full py-4 bg-blue-600 text-white font-black rounded-xl uppercase tracking-widest text-[10px] hover:bg-blue-700 transition-all text-center cursor-pointer shadow-lg shadow-blue-500/20"
-              >
-                Entendido
-              </button>
-            </div>
-
-          </div>
-        </div>
-      )}
-
-    </div>
-  );
-}
-
-// Exportação padrão indispensável para o main.tsx
-export default App;
+                <div>
+                  <label className="text-[10px] font-black text-slate-500 uppercase">Responsável *</label>
+                  <input 
+                    type="text" 
+                    value={processFormData.requisitante} 
+                    onChange={e => setProcessFormData({...processFormData, requisitante: e.target.value})} 
+                    placeholder="Nome do Solicitante" 
+                    required 
+                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-blue
