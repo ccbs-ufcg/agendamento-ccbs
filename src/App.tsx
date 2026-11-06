@@ -120,6 +120,14 @@ export function App() {
   });
   const [criterios, setCriterios] = useState([criterioVazio()]);
 
+  // --- GESTÃO DINÂMICA DA SALA DE REUNIÃO ---
+  const [salaReuniaoBloqueada, setSalaReuniaoBloqueada] = useState(true);
+  const [motivoIndisponibilidade, setMotivoIndisponibilidade] = useState('Manutenção no sistema de climatização');
+  const [dataReabertura, setDataReabertura] = useState('');
+  const [editandoMotivo, setEditandoMotivo] = useState('');
+  const [editandoDataReabertura, setEditandoDataReabertura] = useState('');
+  const [enviandoEmails, setEnviandoEmails] = useState(false);
+
   // --- CONTROLO DE INTERFACE ---
   const [loading, setLoading] = useState(true);
   const [generatingPDF, setGeneratingPDF] = useState(false);
@@ -153,7 +161,7 @@ export function App() {
   };
 
   // ==========================================
-  // 3. EFEITOS (AUTENTICAÇÃO E FIRESTORE)
+  // 3. EFEITOS (AUTENTICAÇÃO, FIRESTORE E CONFIGS)
   // ==========================================
   useEffect(() => {
     if (!auth) {
@@ -195,6 +203,37 @@ export function App() {
     return () => unsubscribe();
   }, [user]);
 
+  // Escuta em tempo real as configurações da Sala de Reunião
+  useEffect(() => {
+    if (!user || !db) return;
+    const configRef = doc(db, 'artifacts', appId as string, 'public', 'data', 'configuracoes', 'sala_reuniao');
+
+    const unsubscribe = onSnapshot(configRef, (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        const motivo = data.motivo || 'Manutenção no sistema de climatização';
+        const dataLimite = data.dataReabertura || '';
+        const hojeStr = new Date().toISOString().split('T')[0];
+
+        // Reabertura automática se atinja/ultrapasse a data limite
+        let bloqueioAtivo = data.bloqueada ?? true;
+        if (dataLimite && hojeStr >= dataLimite) {
+          bloqueioAtivo = false;
+        }
+
+        setSalaReuniaoBloqueada(bloqueioAtivo);
+        setMotivoIndisponibilidade(motivo);
+        setDataReabertura(dataLimite);
+        setEditandoMotivo(motivo);
+        setEditandoDataReabertura(dataLimite);
+      }
+    }, (error) => {
+      console.error("Erro ao carregar configurações:", error);
+    });
+
+    return () => unsubscribe();
+  }, [user]);
+
   // Sincroniza visualização do dia selecionado em tempo real
   useEffect(() => {
     if (selectedDayReservas) {
@@ -204,9 +243,8 @@ export function App() {
   }, [reservas]);
 
   // ==========================================
-  // 4. FUNÇÕES DE SUPORTE E ENVIO DE E-MAIL
+  // 4. FUNÇÕES DE SUPORTE, E-MAIL E ADMIN
   // ==========================================
-  // Envia o e-mail ao solicitante e, se for Sala de Reunião, cópia para a biblioteca
   const enviarEmailLembrete = async (dadosReserva: any) => {
     const templateParams = {
       to_name: dadosReserva.requisitante,
@@ -223,52 +261,255 @@ export function App() {
     const destinos = [dadosReserva.email];
     if (dadosReserva.auditorio === 'SALA DE REUNIÃO') destinos.push(EMAIL_BIBLIOTECA);
 
-    // Cada envio tem seu try/catch: se um falhar, o outro ainda é enviado
     for (const destino of destinos) {
       try {
-        const res = await emailjs.send(
-          EMAILJS_SERVICE_ID,
-          EMAILJS_TEMPLATE_ID,
-          { ...templateParams, to_email: destino },
-          EMAILJS_PUBLIC_KEY
-        );
-        console.log(`E-mail enviado para ${destino}:`, res.status, res.text);
+        await emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, { ...templateParams, to_email: destino }, EMAILJS_PUBLIC_KEY);
       } catch (error) {
         console.error(`Falha no envio para ${destino}:`, error);
       }
     }
   };
 
+  const handleSalvarConfigSala = async (bloquear: boolean) => {
+    if (!isAdminMode) {
+      showToast('Apenas administradores podem alterar as configurações.', 'error');
+      return;
+    }
+
+    try {
+      if (!db) return;
+      const configRef = doc(db, 'artifacts', appId as string, 'public', 'data', 'configuracoes', 'sala_reuniao');
+      
+      await setDoc(configRef, {
+        bloqueada: bloquear,
+        motivo: editandoMotivo.trim() || 'Indisponível para agendamentos.',
+        dataReabertura: editandoDataReabertura,
+        atualizadoEm: new Date().toLocaleString('pt-BR')
+      }, { merge: true });
+
+      showToast('Configurações salvas com sucesso!', 'success');
+    } catch (error) {
+      console.error('Erro ao salvar configuração:', error);
+      showToast('Erro ao atualizar configurações no servidor.', 'error');
+    }
+  };
+
+  const handleTransferirReserva = async (reserva: any, novoAuditorio: string) => {
+    if (!isAdminMode) {
+      showToast('Apenas administradores podem transferir reservas.', 'error');
+      return;
+    }
+
+    const conflito = reservas.find(r => 
+      r.id !== reserva.id &&
+      r.auditorio === novoAuditorio &&
+      r.data === reserva.data &&
+      ((reserva.horaInicio >= r.horaInicio && reserva.horaInicio < r.horaFim) ||
+       (reserva.horaFim > r.horaInicio && reserva.horaFim <= r.horaFim))
+    );
+
+    if (conflito) {
+      showToast(`Conflito! O espaço ${novoAuditorio} já está ocupado neste horário.`, 'error');
+      return;
+    }
+
+    try {
+      if (!db) return;
+      const docRef = doc(db, 'artifacts', appId as string, 'public', 'data', 'reservas_ccbs', reserva.id);
+      
+      await updateDoc(docRef, { 
+        auditorio: novoAuditorio,
+        historicoTransferencia: `Transferido da SALA DE REUNIÃO para ${novoAuditorio} em ${new Date().toLocaleDateString('pt-BR')}`
+      });
+
+      try {
+        await emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, {
+          to_name: reserva.requisitante,
+          to_email: reserva.email,
+          reply_to: EMAIL_BIBLIOTECA,
+          nome_evento: `${reserva.nomeEvento} (Remanejado)`,
+          auditorio: novoAuditorio,
+          data_evento: reserva.data.split('-').reverse().join('/'),
+          hora_inicio: reserva.horaInicio,
+          hora_fim: reserva.horaFim,
+          protocolo: reserva.id
+        }, EMAILJS_PUBLIC_KEY);
+      } catch (e) {
+        console.error("Erro ao enviar e-mail de transferência:", e);
+      }
+
+      showToast(`Reserva transferida para: ${novoAuditorio}`, 'success');
+    } catch (error) {
+      console.error('Erro ao transferir reserva:', error);
+      showToast('Erro ao atualizar local no banco de dados.', 'error');
+    }
+  };
+
+  const handleNotificarRemanejamento = async () => {
+    if (!salaReuniaoBloqueada) {
+      showToast('A Sala de Reunião não está em manutenção.', 'info');
+      return;
+    }
+
+    const hojeStr = new Date().toISOString().split('T')[0];
+    const afetados = reservas.filter(r => {
+      if (r.auditorio !== 'SALA DE REUNIÃO') return false;
+      return dataReabertura ? (r.data >= hojeStr && r.data < dataReabertura) : r.data >= hojeStr;
+    });
+
+    if (afetados.length === 0) {
+      showToast('Nenhum agendamento encontrado no período para notificação.', 'info');
+      return;
+    }
+
+    if (!window.confirm(`Deseja enviar um e-mail de aviso para ${afetados.length} requisitante(s)?`)) return;
+
+    setEnviandoEmails(true);
+    let sucessos = 0;
+    let falhas = 0;
+
+    for (const reserva of afetados) {
+      try {
+        await emailjs.send(
+          EMAILJS_SERVICE_ID,
+          EMAILJS_TEMPLATE_ID,
+          {
+            to_name: reserva.requisitante,
+            to_email: reserva.email,
+            reply_to: EMAIL_BIBLIOTECA,
+            nome_evento: reserva.nomeEvento,
+            auditorio: reserva.auditorio,
+            data_evento: reserva.data.split('-').reverse().join('/'),
+            hora_inicio: reserva.horaInicio,
+            hora_fim: reserva.horaFim,
+            protocolo: reserva.id,
+            motivo_manutencao: motivoIndisponibilidade,
+            previsao_retorno: dataReabertura ? dataReabertura.split('-').reverse().join('/') : 'A definir'
+          },
+          EMAILJS_PUBLIC_KEY
+        );
+        sucessos++;
+      } catch (err) {
+        falhas++;
+      }
+    }
+
+    setEnviandoEmails(false);
+    showToast(`Notificações enviadas: ${sucessos} sucesso(s)${falhas > 0 ? `, ${falhas} falha(s)` : ''}`, 'success');
+  };
+
+  const handleGerarRelatorioManutencao = () => {
+    if (!salaReuniaoBloqueada) {
+      showToast('A Sala de Reunião não está bloqueada para manutenção.', 'info');
+      return;
+    }
+
+    const hojeStr = new Date().toISOString().split('T')[0];
+    const afetados = reservas.filter(r => {
+      if (r.auditorio !== 'SALA DE REUNIÃO') return false;
+      return dataReabertura ? (r.data >= hojeStr && r.data < dataReabertura) : r.data >= hojeStr;
+    });
+
+    if (afetados.length === 0) {
+      showToast('Nenhum agendamento encontrado no período de manutenção.', 'info');
+      return;
+    }
+
+    const docPdf = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
+    docPdf.setFont('helvetica', 'bold');
+    docPdf.setFontSize(14);
+    docPdf.text('RELATÓRIO DE AGENDAMENTOS PARA REMANEJAMENTO', 105, 20, { align: 'center' });
+
+    docPdf.setFontSize(10);
+    docPdf.setFont('helvetica', 'normal');
+    docPdf.text('UNIVERSIDADE FEDERAL DE CAMPINA GRANDE - CCBS', 105, 26, { align: 'center' });
+    docPdf.text(`Espaço: SALA DE REUNIÃO`, 105, 31, { align: 'center' });
+    docPdf.text(`Motivo: ${motivoIndisponibilidade}`, 105, 36, { align: 'center' });
+    if (dataReabertura) docPdf.text(`Período Afetado: Até ${dataReabertura.split('-').reverse().join('/')}`, 105, 41, { align: 'center' });
+
+    docPdf.line(14, 46, 196, 46);
+
+    let y = 54;
+    docPdf.setFont('helvetica', 'bold');
+    docPdf.text('Data/Hora', 14, y);
+    docPdf.text('Evento / Requisitante', 60, y);
+    docPdf.text('Contato / Setor', 140, y);
+    docPdf.line(14, y + 2, 196, y + 2);
+    y += 8;
+
+    docPdf.setFont('helvetica', 'normal');
+    docPdf.setFontSize(9);
+
+    afetados.forEach((item) => {
+      if (y > 270) {
+        docPdf.addPage();
+        y = 20;
+      }
+      docPdf.setFont('helvetica', 'bold');
+      docPdf.text(`${item.data.split('-').reverse().join('/')}`, 14, y);
+      docPdf.setFont('helvetica', 'normal');
+      docPdf.text(`${item.horaInicio} - ${item.horaFim}`, 14, y + 4);
+      docPdf.text(`${item.nomeEvento || 'Sem Nome'}`, 60, y);
+      docPdf.text(`Resp: ${item.requisitante}`, 60, y + 4);
+      docPdf.text(`Tel: ${item.telefone || '-'}`, 140, y);
+      docPdf.text(`Setor: ${item.setor || '-'}`, 140, y + 4);
+      y += 12;
+    });
+
+    docPdf.save(`Relatorio_Remanejamento_SalaReuniao_${hojeStr}.pdf`);
+    showToast('Relatório baixado com sucesso!', 'success');
+  };
+
   // ==========================================
-  // BLOQUEAR SELEÇÃO DE FIM DE SEMANA NO CAMPO DATA
+  // VALIDAÇÕES DO FORMULÁRIO E SUBMISSÃO
   // ==========================================
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     
     if (name === 'data') {
       const d = new Date(value + 'T12:00:00');
-      // d.getDay(): 0 representa Domingo e 6 representa Sábado
       if (d.getDay() === 0 || d.getDay() === 6) {
         showToast('Agendamentos válidos apenas para dias úteis (Seg a Sex)!', 'error');
-        setFormData(prev => ({ ...prev, data: '' })); // Limpa o campo para forçar uma nova seleção válida
+        setFormData(prev => ({ ...prev, data: '' }));
         return;
+      }
+
+      if (formData.auditorio === 'SALA DE REUNIÃO' && salaReuniaoBloqueada) {
+        const hojeStr = new Date().toISOString().split('T')[0];
+        if (!dataReabertura || (value < dataReabertura && value >= hojeStr)) {
+          showToast(`A Sala de Reunião está em manutenção!`, 'error');
+          setFormData(prev => ({ ...prev, data: '' }));
+          return;
+        }
+      }
+    }
+
+    if (name === 'auditorio' && value === 'SALA DE REUNIÃO' && salaReuniaoBloqueada && formData.data) {
+      const hojeStr = new Date().toISOString().split('T')[0];
+      if (!dataReabertura || (formData.data < dataReabertura && formData.data >= hojeStr)) {
+        showToast('A data selecionada está dentro do período de manutenção da Sala de Reunião.', 'error');
+        setFormData(prev => ({ ...prev, data: '' }));
       }
     }
     
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
-  // ==========================================
-  // BLOQUEAR AÇÕES REALIZADAS NO PRÓPRIO FIM DE SEMANA
-  // ==========================================
   const handleBooking = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // REGRA DE SEGURANÇA: Verifica se hoje é sábado ou domingo
-    const diaHoje = new Date().getDay(); // 0 = Domingo, 6 = Sábado
+    const diaHoje = new Date().getDay();
     if (diaHoje === 0 || diaHoje === 6) {
-      showToast('Não é possível realizar solicitações de agendamento no fim de semana (Sábado e Domingo).', 'error');
+      showToast('Não é possível realizar solicitações no fim de semana.', 'error');
       return;
+    }
+
+    if (formData.auditorio === 'SALA DE REUNIÃO' && salaReuniaoBloqueada) {
+      const hojeStr = new Date().toISOString().split('T')[0];
+      if (!dataReabertura || (formData.data < dataReabertura && formData.data >= hojeStr)) {
+        showToast('A Sala de Reunião está indisponível para reservas no momento.', 'error');
+        return;
+      }
     }
 
     if (!formData.data || !formData.nomeEvento || !formData.requisitante || !formData.cpf || !formData.email || !formData.telefone || !formData.senha) {
@@ -297,15 +538,11 @@ export function App() {
     };
 
     try {
-      if (!db) {
-        showToast('Banco de dados indisponível.', 'error');
-        return;
-      }
+      if (!db) return;
       const docRef = doc(db, 'artifacts', appId as string, 'public', 'data', 'reservas_ccbs', id);
       await setDoc(docRef, novaReserva);
       
       enviarEmailLembrete(novaReserva);
-
       setShowReceipt(novaReserva);
       showToast('Sucesso! Reserva efetuada.');
       
@@ -315,11 +552,10 @@ export function App() {
       });
     } catch (e) {
       console.error(e);
-      showToast('Erro ao guardar o agendamento no servidor.', 'error');
+      showToast('Erro ao guardar o agendamento.', 'error');
     }
   };
 
-  // Alteração de status pelo Administrador
   const handleAlternarStatus = async (reservaId: string, statusAtual: string) => {
     if (!isAdminMode) {
       showToast('Apenas administradores podem alterar o status.', 'error');
@@ -335,7 +571,7 @@ export function App() {
       showToast(`Status alterado para: ${novoStatus}`, 'success');
     } catch (error) {
       console.error('Erro ao alterar status:', error);
-      showToast('Erro ao atualizar o status no servidor.', 'error');
+      showToast('Erro ao atualizar o status.', 'error');
     }
   };
 
@@ -347,11 +583,7 @@ export function App() {
 
     if (inputSenha === senhaReserva || inputSenha === MASTER_PASSWORD) {
       try {
-        if (!db) {
-          showToast('Banco de dados indisponível.', 'error');
-          return;
-        }
-        
+        if (!db) return;
         const docRef = doc(db, 'artifacts', appId as string, 'public', 'data', 'reservas_ccbs', showCancelModal.id);
         await deleteDoc(docRef);
         
@@ -361,7 +593,7 @@ export function App() {
         setSelectedDayReservas(null);
       } catch (e) { 
         console.error("Erro ao cancelar agendamento:", e);
-        showToast('Erro ao remover o agendamento.', 'error'); 
+        showToast('Erro ao remover agendamento.', 'error'); 
       }
     } else {
       showToast('Senha incorreta!', 'error');
@@ -386,14 +618,11 @@ export function App() {
     }
 
     setLoadingSecondCopy(true);
-
     try {
       const idBuscado = reprintId.trim().toUpperCase();
       const senhaBuscada = reprintPassword.trim();
 
-      let dadosReserva = reservas.find(
-        r => r.id && String(r.id).trim().toUpperCase() === idBuscado
-      );
+      let dadosReserva = reservas.find(r => r.id && String(r.id).trim().toUpperCase() === idBuscado);
 
       if (!dadosReserva && db) {
         const docRef = doc(db, 'artifacts', appId as string, 'public', 'data', 'reservas_ccbs', idBuscado);
@@ -405,7 +634,6 @@ export function App() {
 
       if (dadosReserva) {
         const senhaCadastrada = String(dadosReserva.senha || '').trim();
-
         if (senhaBuscada === senhaCadastrada || senhaBuscada === MASTER_PASSWORD) {
           setShowReceipt(dadosReserva);
           setShowReprintModal(false);
@@ -416,7 +644,7 @@ export function App() {
           showToast('Senha incorreta para este protocolo!', 'error');
         }
       } else {
-        showToast('Protocolo não encontrado no sistema.', 'error');
+        showToast('Protocolo não encontrado.', 'error');
       }
     } catch (err) {
       console.error("Erro ao buscar 2ª via:", err);
@@ -428,10 +656,7 @@ export function App() {
 
   const handleDownloadPDF = async () => {
     const elemento = termoRef.current;
-    if (!elemento) {
-      showToast('Erro: Elemento visual do termo não encontrado.', 'error');
-      return;
-    }
+    if (!elemento) return;
     
     setGeneratingPDF(true);
     const originalWidth = elemento.style.width;
@@ -440,27 +665,16 @@ export function App() {
     try {
       elemento.style.width = '800px';
       elemento.style.maxWidth = '800px';
-
       await new Promise((resolve) => setTimeout(resolve, 300));
 
       const canvas = await html2canvas(elemento, { 
-        scale: 1.5, 
-        backgroundColor: '#ffffff', 
-        useCORS: true,
-        allowTaint: false,
-        logging: false
+        scale: 1.5, backgroundColor: '#ffffff', useCORS: true, allowTaint: false, logging: false
       });
       
       elemento.style.width = originalWidth;
       elemento.style.maxWidth = originalMaxWidth;
 
-      const pdf = new jsPDF({
-        orientation: 'p',
-        unit: 'mm',
-        format: 'a4',
-        compress: true 
-      });
-      
+      const pdf = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4', compress: true });
       const pageWidth = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
       const imgData = canvas.toDataURL('image/jpeg', 0.75);
@@ -478,22 +692,22 @@ export function App() {
     }
   };
 
-  const obterCorLocal = (local: string) => {
-    if (local === 'AUDITÓRIO') return 'bg-blue-600';
-    if (local === 'SALA DE REUNIÃO') return 'bg-cyan-500';
-    if (local === 'SALA 01') return 'bg-emerald-600';
-    return 'bg-slate-600';
+  const obterEstiloTag = (reserva: any) => {
+    if (reserva.historicoTransferencia) return 'bg-purple-600 border border-purple-300 text-white font-black';
+    if (reserva.auditorio === 'AUDITÓRIO') return 'bg-blue-600 text-white';
+    if (reserva.auditorio === 'SALA DE REUNIÃO') return 'bg-cyan-500 text-white';
+    if (reserva.auditorio === 'SALA 01') return 'bg-emerald-600 text-white';
+    return 'bg-slate-600 text-white';
   };
 
   const copiarParaTransferencia = (texto: string) => {
     navigator.clipboard.writeText(texto);
-    showToast('Código de protocolo copiado! 📋');
+    showToast('Código copiado! 📋');
   };
 
   // ==========================================
   // 5. AGENDAMENTO POR PROCESSO
   // ==========================================
-  // Gera todas as datas de um dia da semana dentro de um intervalo
   const gerarDatasCriterio = (c: any) => {
     if (!c.dataInicio || !c.dataFim || c.dataFim < c.dataInicio) return [];
     const out: string[] = [];
@@ -508,7 +722,6 @@ export function App() {
     return out;
   };
 
-  // Monta a prévia e marca conflitos (com reservas existentes ou entre os próprios critérios)
   const montarPreviaProcesso = () => {
     const lista: any[] = [];
     criterios.forEach(c => {
@@ -517,14 +730,26 @@ export function App() {
     });
     lista.sort((a, b) => a.data.localeCompare(b.data) || a.horaInicio.localeCompare(b.horaInicio));
 
+    const hojeStr = new Date().toISOString().split('T')[0];
     const resultado: any[] = [];
+
     lista.forEach(item => {
-      const conflito =
+      const emManutencao = 
+        processData.auditorio === 'SALA DE REUNIÃO' && 
+        salaReuniaoBloqueada && 
+        (!dataReabertura || (item.data < dataReabertura && item.data >= hojeStr));
+
+      const conflitoReserva =
         reservas.some(r => r.auditorio === processData.auditorio && r.data === item.data &&
           item.horaInicio < r.horaFim && item.horaFim > r.horaInicio) ||
         resultado.some(p => !p.conflito && p.data === item.data &&
           item.horaInicio < p.horaFim && item.horaFim > p.horaInicio);
-      resultado.push({ ...item, conflito });
+
+      resultado.push({ 
+        ...item, 
+        conflito: conflitoReserva || emManutencao,
+        motivoConflito: emManutencao ? 'Em Manutenção' : (conflitoReserva ? 'Horário Ocupado' : null)
+      });
     });
     return resultado;
   };
@@ -544,19 +769,22 @@ export function App() {
       showToast('Informe o nome do evento e o número do processo SEI!', 'error');
       return;
     }
+
+    if (processData.auditorio === 'SALA DE REUNIÃO' && salaReuniaoBloqueada && !dataReabertura) {
+      showToast('A Sala de Reunião está totalmente indisponível para novos agendamentos.', 'error');
+      return;
+    }
+
     const validos = montarPreviaProcesso().filter(p => !p.conflito);
     if (validos.length === 0) {
-      showToast('Nenhuma data válida para agendar. Verifique os critérios.', 'error');
+      showToast('Nenhuma data válida para agendar. Verifique manutenção e conflitos.', 'error');
       return;
     }
     if (processData.adminSenha.trim() !== MASTER_PASSWORD) {
       showToast('Senha de administrador incorreta!', 'error');
       return;
     }
-    if (!db) {
-      showToast('Banco de dados indisponível.', 'error');
-      return;
-    }
+    if (!db) return;
 
     setSavingProcess(true);
     try {
@@ -572,7 +800,7 @@ export function App() {
         cpf: '-', email: '-', telefone: '-',
         setor: `SEI ${processData.sei.trim()}`,
         processoSei: processData.sei.trim(),
-        senha: Math.random().toString(36).slice(2, 12), // evita senha vazia; admin cancela com a senha mestra
+        senha: Math.random().toString(36).slice(2, 12),
         status: 'Confirmado',
         dataCriacao: agora
       }));
@@ -581,7 +809,6 @@ export function App() {
         novas.map(r => setDoc(doc(db, 'artifacts', appId as string, 'public', 'data', 'reservas_ccbs', r.id), r))
       );
 
-      // Cópia para a biblioteca (um único e-mail consolidado)
       if (processData.auditorio === 'SALA DE REUNIÃO') {
         try {
           await emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, {
@@ -596,12 +823,12 @@ export function App() {
             protocolo: novas.map(n => n.id).join(', ')
           }, EMAILJS_PUBLIC_KEY);
         } catch (err) {
-          console.error('Falha ao enviar cópia para a biblioteca:', err);
+          console.error('Falha ao enviar cópia para biblioteca:', err);
         }
       }
 
       const ignorados = montarPreviaProcesso().length - validos.length;
-      showToast(`${validos.length} agendamento(s) confirmado(s)${ignorados ? ` • ${ignorados} ignorado(s) por conflito` : ''}`, 'success');
+      showToast(`${validos.length} agendamento(s) confirmado(s)${ignorados ? ` • ${ignorados} ignorado(s) por conflito/manutenção` : ''}`, 'success');
       fecharModalProcesso();
     } catch (e) {
       console.error(e);
@@ -641,10 +868,17 @@ export function App() {
             {dayReservas.slice(0, 2).map((r, idx) => (
               <div 
                 key={idx} 
-                className={`text-[8px] md:text-[9px] truncate px-1 rounded font-bold text-white uppercase ${obterCorLocal(r.auditorio)}`} 
-                title={r.nomeEvento}
+                className={`text-[8px] md:text-[9px] truncate px-1 py-0.5 rounded font-bold uppercase flex items-center justify-between gap-1 ${obterEstiloTag(r)}`} 
+                title={`${r.nomeEvento || r.requisitante}${r.historicoTransferencia ? ` (${r.historicoTransferencia})` : ''}`}
               >
-                {r.horaInicio} {r.nomeEvento || r.requisitante.split(' ')[0]}
+                <span className="truncate">
+                  {r.horaInicio} {r.nomeEvento || r.requisitante.split(' ')[0]}
+                </span>
+                {r.historicoTransferencia && (
+                  <span className="bg-white/20 text-white text-[7px] px-0.5 rounded font-black shrink-0">
+                    🔄
+                  </span>
+                )}
               </div>
             ))}
             {dayReservas.length > 2 && <div className="text-[8px] text-slate-400 font-bold text-center">+{dayReservas.length - 2}</div>}
@@ -691,6 +925,19 @@ export function App() {
             >
               <FileText className="w-3.5 h-3.5" /> 2ª Via do Termo
             </button>
+            {!isAdminMode ? (
+              <button
+                onClick={() => setShowAdminUnlock(true)}
+                className="bg-blue-800 text-white hover:bg-blue-900 p-2 rounded-xl shadow transition-all cursor-pointer"
+                title="Modo Administrador"
+              >
+                <Lock className="w-4 h-4" />
+              </button>
+            ) : (
+              <div className="flex items-center gap-2 bg-emerald-600 px-3 py-1.5 rounded-xl text-xs font-black uppercase">
+                <Unlock className="w-3.5 h-3.5" /> Admin
+              </div>
+            )}
           </div>
         </div>
       </header>
@@ -699,7 +946,83 @@ export function App() {
       <main className="max-w-7xl mx-auto px-4 py-8 grid grid-cols-1 lg:grid-cols-12 gap-8 print:hidden flex-1">
         
         {/* FORMULÁRIO DE NOVO AGENDAMENTO */}
-        <div className="lg:col-span-4">
+        <div className="lg:col-span-4 space-y-6">
+
+          {/* PAINEL ADMIN PARA GERENCIAR SALA DE REUNIÃO */}
+          {isAdminMode && (
+            <div className="bg-amber-50 border-2 border-amber-300 p-5 rounded-[2rem] shadow-xl space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-amber-900 font-black text-xs uppercase tracking-wider">
+                  <Shield className="w-4 h-4 text-amber-600" />
+                  <span>Gestão Sala de Reunião</span>
+                </div>
+                <span className={`text-[9px] font-black px-2 py-0.5 rounded-full uppercase ${salaReuniaoBloqueada ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+                  {salaReuniaoBloqueada ? 'Indisponível' : 'Liberada'}
+                </span>
+              </div>
+
+              <div>
+                <label className="block text-[9px] font-black uppercase text-amber-800 mb-1">Motivo:</label>
+                <input
+                  type="text"
+                  value={editandoMotivo}
+                  onChange={(e) => setEditandoMotivo(e.target.value)}
+                  placeholder="Ex: Manutenção na climatização..."
+                  className="w-full p-3 bg-white border border-amber-200 rounded-xl font-medium text-xs text-slate-800 outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[9px] font-black uppercase text-amber-800 mb-1">Reabertura Automática:</label>
+                <input
+                  type="date"
+                  value={editandoDataReabertura}
+                  onChange={(e) => setEditandoDataReabertura(e.target.value)}
+                  className="w-full p-3 bg-white border border-amber-200 rounded-xl font-bold text-xs text-slate-800 outline-none"
+                />
+              </div>
+
+              <div className="flex gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => handleSalvarConfigSala(true)}
+                  className="flex-1 py-2.5 bg-amber-600 text-white rounded-xl font-bold text-[10px] uppercase hover:bg-amber-700 transition-all cursor-pointer"
+                >
+                  Salvar Bloqueio
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSalvarConfigSala(false)}
+                  className="py-2.5 px-3 bg-emerald-600 text-white rounded-xl font-bold text-[10px] uppercase hover:bg-emerald-700 transition-all cursor-pointer"
+                >
+                  Liberar
+                </button>
+              </div>
+
+              {salaReuniaoBloqueada && (
+                <div className="pt-2 border-t border-amber-200 space-y-2">
+                  <button
+                    type="button"
+                    disabled={enviandoEmails}
+                    onClick={handleNotificarRemanejamento}
+                    className="w-full py-2.5 bg-blue-700 text-white font-bold rounded-xl text-[10px] uppercase hover:bg-blue-800 transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  >
+                    {enviandoEmails ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Mail className="w-3.5 h-3.5" />}
+                    Notificar Afetados via E-mail
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleGerarRelatorioManutencao}
+                    className="w-full py-2.5 bg-amber-800 text-white font-bold rounded-xl text-[10px] uppercase hover:bg-amber-900 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <FileText className="w-3.5 h-3.5" /> Baixar Relatório (PDF)
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="bg-white rounded-[2rem] shadow-2xl border border-slate-200 overflow-hidden sticky top-24">
             
             <div className="bg-blue-800 p-6 flex items-center justify-between">
@@ -710,7 +1033,7 @@ export function App() {
                 type="button"
                 onClick={() => setShowHelpModal(true)} 
                 className="bg-white/10 p-2 rounded-lg text-white hover:bg-white/20 transition-all cursor-pointer" 
-                title="Abrir Central de Ajuda"
+                title="Central de Ajuda"
               >
                 <HelpCircle className="w-5 h-5 text-white" />
               </button>
@@ -720,13 +1043,47 @@ export function App() {
               <div className="space-y-3">
                 <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Local & Data</label>
                 
-                <select name="auditorio" value={formData.auditorio} onChange={handleChange} className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold uppercase text-xs focus:border-blue-600 outline-none transition-all">
-                  {AUDITORIOS.map(a => (
-                    <option key={a} value={a}>{a}</option>
-                  ))}
+                <select 
+                  name="auditorio" 
+                  value={formData.auditorio} 
+                  onChange={handleChange} 
+                  className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold uppercase text-xs focus:border-blue-600 outline-none transition-all"
+                >
+                  {AUDITORIOS.map(a => {
+                    const isSalaReuniao = a === 'SALA DE REUNIÃO';
+                    const desabilitado = isSalaReuniao && salaReuniaoBloqueada;
+                    return (
+                      <option key={a} value={a} disabled={desabilitado}>
+                        {a} {desabilitado ? '(Temporariamente Indisponível)' : ''}
+                      </option>
+                    );
+                  })}
                 </select>
+
+                {formData.auditorio === 'SALA DE REUNIÃO' && salaReuniaoBloqueada && (
+                  <div className="flex items-start gap-2.5 p-3.5 bg-amber-50 border border-amber-200 rounded-2xl text-amber-900 text-xs font-semibold">
+                    <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-bold uppercase text-[10px] text-amber-700 tracking-wider">Espaço Indisponível</p>
+                      <p className="mt-0.5">{motivoIndisponibilidade}</p>
+                      {dataReabertura && (
+                        <p className="mt-2 text-[11px] font-bold text-amber-800 flex items-center gap-1">
+                          <Clock className="w-3.5 h-3.5 text-amber-600 inline" />
+                          Previsão de reabertura: {dataReabertura.split('-').reverse().join('/')}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
                 
-                <input type="date" name="data" value={formData.data} onChange={handleChange} className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none focus:border-blue-600 font-bold" />
+                <input 
+                  type="date" 
+                  name="data" 
+                  value={formData.data} 
+                  onChange={handleChange} 
+                  min={formData.auditorio === 'SALA DE REUNIÃO' && salaReuniaoBloqueada && dataReabertura ? dataReabertura : new Date().toISOString().split('T')[0]}
+                  className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none focus:border-blue-600 font-bold text-xs" 
+                />
                 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
@@ -744,25 +1101,25 @@ export function App() {
                 </div>
 
                 <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Evento</label>
-                <input type="text" name="nomeEvento" value={formData.nomeEvento} onChange={handleChange} placeholder="Nome do Evento" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none focus:border-blue-600 font-bold" />
+                <input type="text" name="nomeEvento" value={formData.nomeEvento} onChange={handleChange} placeholder="Nome do Evento" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none focus:border-blue-600 font-bold text-xs" />
 
                 <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Responsável</label>
-                <input type="text" name="requisitante" value={formData.requisitante} onChange={handleChange} placeholder="Nome Completo" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none focus:border-blue-600" />
+                <input type="text" name="requisitante" value={formData.requisitante} onChange={handleChange} placeholder="Nome Completo" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none focus:border-blue-600 text-xs" />
                 
                 <div className="grid grid-cols-2 gap-3">
-                  <input type="text" name="cpf" value={formData.cpf} onChange={handleChange} placeholder="CPF" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none focus:border-blue-600 text-sm" />
-                  <input type="text" name="telefone" value={formData.telefone} onChange={handleChange} placeholder="Telefone" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none focus:border-blue-600 text-sm" />
+                  <input type="text" name="cpf" value={formData.cpf} onChange={handleChange} placeholder="CPF" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none focus:border-blue-600 text-xs" />
+                  <input type="text" name="telefone" value={formData.telefone} onChange={handleChange} placeholder="Telefone" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none focus:border-blue-600 text-xs" />
                 </div>
                 
-                <input type="email" name="email" value={formData.email} onChange={handleChange} placeholder="E-mail" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none focus:border-blue-600 text-sm" />
-                <input type="text" name="setor" value={formData.setor} onChange={handleChange} placeholder="Setor / Departamento" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none focus:border-blue-600" />
+                <input type="email" name="email" value={formData.email} onChange={handleChange} placeholder="E-mail" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none focus:border-blue-600 text-xs" />
+                <input type="text" name="setor" value={formData.setor} onChange={handleChange} placeholder="Setor / Departamento" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none focus:border-blue-600 text-xs" />
 
                 <div className="bg-blue-900/5 p-4 rounded-2xl border-2 border-blue-100 mt-4">
                   <div className="flex items-center gap-2 mb-2 text-blue-900">
                     <Lock className="w-3 h-3" />
                     <span className="text-[10px] font-black uppercase tracking-widest">Chave de Segurança</span>
                   </div>
-                  <input type="password" name="senha" value={formData.senha} onChange={handleChange} placeholder="Senha p/ Cancelamento e Termo" className="w-full p-3 bg-white border border-blue-200 rounded-xl text-center font-bold tracking-widest text-blue-900 outline-none focus:border-blue-600" />
+                  <input type="password" name="senha" value={formData.senha} onChange={handleChange} placeholder="Senha p/ Cancelamento" className="w-full p-3 bg-white border border-blue-200 rounded-xl text-center font-bold tracking-widest text-blue-900 outline-none focus:border-blue-600 text-xs" />
                 </div>
               </div>
 
@@ -773,400 +1130,191 @@ export function App() {
           </div>
         </div>
 
-        {/* CALENDÁRIO */}
-        <div className="lg:col-span-8 space-y-6 relative">
-          <div className="bg-white rounded-[2.5rem] shadow-xl border border-slate-200 overflow-hidden">
-            <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
-              <div className="flex items-center gap-4">
-                <div className="bg-blue-600 p-3 rounded-2xl text-white">
-                  <CalendarIcon className="w-6 h-6" />
-                </div>
-                <div>
-                  <h3 className="text-xl font-black text-slate-800 uppercase tracking-tighter capitalize">
-                    {new Intl.DateTimeFormat('pt-BR', { month: 'long', year: 'numeric' }).format(currentDate)}
-                  </h3>
-                  <p className="text-[10px] text-slate-400 font-bold uppercase">{reservas.length} Eventos Registados</p>
-                </div>
+        {/* CALENDÁRIO & LISTAS */}
+        <div className="lg:col-span-8 space-y-6">
+
+          {/* LISTA DE AFETADOS NO PAINEL ADMIN PARA TRANSFERÊNCIA */}
+          {isAdminMode && salaReuniaoBloqueada && (
+            <div className="bg-white p-5 rounded-[2.5rem] border border-amber-200 shadow-xl space-y-3">
+              <h4 className="text-xs font-black uppercase text-amber-900 flex items-center justify-between">
+                <span>Agendamentos Afetados (Sala de Reunião)</span>
+                <span className="bg-amber-100 text-amber-800 text-[10px] px-2.5 py-0.5 rounded-full font-bold">
+                  {reservas.filter(r => r.auditorio === 'SALA DE REUNIÃO' && r.data >= new Date().toISOString().split('T')[0] && (!dataReabertura || r.data < dataReabertura)).length} pendentes
+                </span>
+              </h4>
+
+              <div className="max-h-60 overflow-y-auto space-y-3 pr-1">
+                {reservas
+                  .filter(r => r.auditorio === 'SALA DE REUNIÃO' && r.data >= new Date().toISOString().split('T')[0] && (!dataReabertura || r.data < dataReabertura))
+                  .map(r => (
+                    <div key={r.id} className="p-3 bg-amber-50/60 rounded-xl border border-amber-200 text-xs flex flex-col md:flex-row md:items-center justify-between gap-3">
+                      <div>
+                        <p className="font-black text-slate-800 text-xs">
+                          {r.data.split('-').reverse().join('/')} • {r.horaInicio} às {r.horaFim}
+                        </p>
+                        <p className="text-slate-700 font-bold text-[11px] mt-0.5">
+                          {r.nomeEvento} <span className="font-normal text-slate-500">({r.requisitante})</span>
+                        </p>
+                        <p className="text-slate-500 text-[10px] mt-0.5">Setor: {r.setor || 'N/I'} | Tel: {r.telefone}</p>
+                      </div>
+
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <span className="text-[9px] font-black uppercase text-amber-800 mr-1 hidden sm:inline">Mover para:</span>
+                        <button
+                          type="button"
+                          onClick={() => handleTransferirReserva(r, 'AUDITÓRIO')}
+                          className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-black text-[10px] uppercase shadow-sm cursor-pointer"
+                        >
+                          Auditório
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleTransferirReserva(r, 'SALA 01')}
+                          className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-black text-[10px] uppercase shadow-sm cursor-pointer"
+                        >
+                          Sala 01
+                        </button>
+                      </div>
+                    </div>
+                  ))}
               </div>
-              <div className="flex gap-2">
-                <button onClick={() => setCurrentDate(new Date(currentDate.setMonth(currentDate.getMonth() - 1)))} className="p-2 hover:bg-white rounded-xl border border-slate-200 shadow-sm transition-all"><ChevronLeft /></button>
-                <button onClick={() => setCurrentDate(new Date(currentDate.setMonth(currentDate.getMonth() + 1)))} className="p-2 hover:bg-white rounded-xl border border-slate-200 shadow-sm transition-all"><ChevronRight /></button>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-7 border-b border-slate-100">
-              {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'].map(d => (
-                <div key={d} className="py-3 text-center text-[10px] font-black text-slate-400 uppercase tracking-widest">{d}</div>
-              ))}
-            </div>
-            
-            <div className="grid grid-cols-7">{renderCalendar()}</div>
-            
-            <div className="p-4 bg-slate-50 flex flex-wrap gap-6 justify-center border-t border-slate-100">
-              <div className="flex items-center gap-2"><div className="w-3 h-3 bg-blue-600 rounded-sm"></div><span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Auditório</span></div>
-              <div className="flex items-center gap-2"><div className="w-3 h-3 bg-cyan-500 rounded-sm"></div><span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Sala de Reunião</span></div>
-              <div className="flex items-center gap-2"><div className="w-3 h-3 bg-emerald-600 rounded-sm"></div><span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Sala 01</span></div>
-            </div>
-          </div>
-
-          {/* DETALHES DO DIA SELECIONADO */}
-          {selectedDayReservas && (
-            <div className="bg-slate-900 rounded-[2rem] p-8 text-white shadow-2xl animate-in slide-in-from-right duration-500 relative overflow-hidden">
-               <div className="absolute top-0 right-0 w-32 h-32 bg-blue-600/10 rounded-full -mr-16 -mt-16 blur-3xl"></div>
-               <button onClick={() => setSelectedDayReservas(null)} className="absolute top-6 right-6 p-2 hover:bg-white/10 rounded-full transition-all"><X /></button>
-               
-               <div className="flex justify-between items-center mb-6">
-                 <h4 className="text-2xl font-black uppercase flex items-center gap-3">
-                   <Info className="w-6 h-6 text-blue-400" /> {selectedDayReservas.date.split('-').reverse().join('/')}
-                 </h4>
-                 
-                 {!isAdminMode ? (
-                   <button onClick={() => setShowAdminUnlock(true)} className="flex items-center gap-2 text-[10px] font-bold text-slate-400 hover:text-white transition-all bg-white/5 px-3 py-1.5 rounded-full">
-                     <Lock className="w-3 h-3" /> Ver Contatos / Admin
-                   </button>
-                 ) : (
-                   <button onClick={() => setIsAdminMode(false)} className="flex items-center gap-2 text-[10px] font-bold text-emerald-400 hover:text-emerald-300 transition-all bg-emerald-400/10 px-3 py-1.5 rounded-full">
-                     <Unlock className="w-3 h-3" /> Modo Admin Ativo
-                   </button>
-                 )}
-               </div>
-               
-               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                 {selectedDayReservas.items.map(res => {
-                   const statusReserva = res.status || 'Aguardando Confirmação';
-                   const isConfirmado = statusReserva === 'Confirmado';
-
-                   return (
-                     <div key={res.id} className="bg-white/5 border border-white/10 p-5 rounded-2xl relative group hover:bg-white/10 transition-all">
-                       <div className="flex justify-between items-start mb-3">
-                         <div className="flex items-center gap-2">
-                           <span className={`text-[8px] font-black px-2 py-0.5 rounded uppercase ${obterCorLocal(res.auditorio)}`}>{res.auditorio}</span>
-                           <span className="text-[10px] font-bold text-blue-300 uppercase">{res.horaInicio} - {res.horaFim}</span>
-                         </div>
-                         
-                         <button onClick={() => setShowCancelModal(res)} className="p-2 bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white rounded-lg transition-all" title="Cancelar este agendamento">
-                           <Trash2 className="w-4 h-4" />
-                         </button>
-                       </div>
-
-                       <h5 className="text-lg font-black uppercase tracking-tight text-white mb-1">{res.nomeEvento}</h5>
-                       <div className="flex items-center gap-2 text-xs text-slate-300 mb-2">
-                         <User className="w-3 h-3" /> {res.requisitante} <span className="opacity-50">({res.setor})</span>
-                       </div>
-                       
-                       <div className="flex items-center gap-2 text-[11px] font-bold text-slate-400 mb-3 bg-white/5 px-2.5 py-1.5 rounded-xl w-fit border border-white/5">
-                         <span>Protocolo: <span className="text-blue-400 select-all font-mono uppercase tracking-wide">{res.id}</span></span>
-                         <button 
-                           onClick={() => copiarParaTransferencia(res.id)} 
-                           className="p-1 hover:bg-white/10 text-slate-300 hover:text-white rounded transition-all active:scale-90"
-                           title="Copiar Protocolo"
-                         >
-                           <Copy className="w-3 h-3" />
-                         </button>
-                       </div>
-
-                       {/* STATUS DO AGENDAMENTO */}
-                       <div className="mb-3">
-                         <div className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase border ${
-                           isConfirmado 
-                             ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' 
-                             : 'bg-amber-500/20 text-amber-400 border-amber-500/30'
-                         }`}>
-                           {isConfirmado ? <Check className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
-                           <span>Status: {statusReserva}</span>
-                         </div>
-                       </div>
-
-                       {/* BOTÃO EXCLUSIVO PARA O ADMINISTRADOR MUDAR O STATUS */}
-                       {isAdminMode && (
-                         <div className="mb-3 pt-2 border-t border-white/5">
-                           <button
-                             onClick={() => handleAlternarStatus(res.id, statusReserva)}
-                             className={`w-full py-2 px-3 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer ${
-                               isConfirmado 
-                                 ? 'bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 border border-amber-500/40' 
-                                 : 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-lg shadow-emerald-600/20'
-                             }`}
-                           >
-                             {isConfirmado ? (
-                               <> <Clock className="w-3 h-3" /> Mudar para Aguardando Confirmação </>
-                             ) : (
-                               <> <Check className="w-3 h-3" /> Confirmar Agendamento (Admin) </>
-                             )}
-                           </button>
-                         </div>
-                       )}
-
-                       <div className="pt-3 border-t border-white/10">
-                         {isAdminMode ? (
-                           <div className="space-y-1">
-                             <p className="text-[10px] text-slate-400 flex items-center gap-2"><CreditCard className="w-3 h-3" /> CPF: {res.cpf}</p>
-                             <p className="text-[10px] text-slate-400 flex items-center gap-2"><Mail className="w-3 h-3" /> {res.email}</p>
-                             <p className="text-[10px] text-slate-400 flex items-center gap-2"><Phone className="w-3 h-3" /> {res.telefone}</p>
-                           </div>
-                         ) : (
-                           <div className="flex items-center gap-2 text-[10px] text-slate-500 italic">
-                             <Lock className="w-3 h-3" /> Contatos Ocultos
-                           </div>
-                         )}
-                       </div>
-                     </div>
-                   );
-                 })}
-               </div>
             </div>
           )}
+
+          {/* CALENDÁRIO MENSAL */}
+          <div className="bg-white rounded-[2.5rem] shadow-xl border border-slate-200 overflow-hidden">
+            <div className="p-6 bg-slate-900 text-white flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <CalendarIcon className="w-5 h-5 text-blue-400" />
+                <h2 className="font-black text-sm uppercase tracking-widest">
+                  {currentDate.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
+                </h2>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => setCurrentDate(new Date(currentDate.setMonth(currentDate.getMonth() - 1)))} className="p-2 bg-slate-800 hover:bg-slate-700 rounded-xl transition-all cursor-pointer">
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <button onClick={() => setCurrentDate(new Date())} className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-[10px] font-black uppercase rounded-xl transition-all cursor-pointer">
+                  Hoje
+                </button>
+                <button onClick={() => setCurrentDate(new Date(currentDate.setMonth(currentDate.getMonth() + 1)))} className="p-2 bg-slate-800 hover:bg-slate-700 rounded-xl transition-all cursor-pointer">
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-7 text-center border-b border-slate-100 bg-slate-50 font-black text-[10px] text-slate-400 py-3 uppercase tracking-wider">
+              <div>Dom</div><div>Seg</div><div>Ter</div><div>Qua</div><div>Qui</div><div>Sex</div><div>Sáb</div>
+            </div>
+
+            <div className="grid grid-cols-7">{renderCalendar()}</div>
+
+            {/* LEGENDA DE CORES */}
+            <div className="p-4 bg-slate-50 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3 text-[10px] font-bold uppercase text-slate-500">
+              <div className="flex flex-wrap items-center gap-4">
+                <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-blue-600"></span> Auditório</div>
+                <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-cyan-500"></span> Sala de Reunião</div>
+                <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-emerald-600"></span> Sala 01</div>
+                <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-purple-600"></span> Remanejado</div>
+              </div>
+            </div>
+          </div>
         </div>
       </main>
 
-      {/* RODAPÉ */}
-      <footer className="mt-auto border-t border-slate-200 bg-white print:hidden">
-        <div className="max-w-7xl mx-auto px-4 py-6 flex flex-col md:flex-row items-center justify-between gap-4">
-          <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">
-            Desenvolvido por: <span className="text-blue-600">Renato de Freitas Souza</span> | © 2026 Copyright
-          </p>
-          <a href="https://github.com/renatofreitas-create/agendamento.ccbs.git" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-slate-400 hover:text-slate-800 transition-all text-xs font-bold bg-slate-100 px-3 py-2 rounded-lg">
-            <Github className="w-4 h-4" /> Repositório Oficial
-          </a>
-        </div>
-      </footer>
-
-      {/* MODAIS AUXILIARES */}
-      {showCancelModal && (
-        <div className="fixed inset-0 bg-slate-900/95 backdrop-blur-md z-[130] flex items-center justify-center p-4 print:hidden">
-          <div className="bg-white rounded-[2rem] p-8 max-w-sm w-full shadow-2xl text-center">
-            <div className="bg-red-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-red-600">
-              <AlertCircle className="w-7 h-7" />
-            </div>
-            <h3 className="text-lg font-black uppercase mb-1">Confirmação</h3>
-            <p className="text-slate-500 text-xs mb-6">
-              Insira a senha do utilizador ou a senha mestra para cancelar o evento <strong className="text-slate-800">"{showCancelModal.nomeEvento}"</strong>.
-            </p>
-            
-            <div className="space-y-3 text-left mb-6">
-              <input 
-                type="password" 
-                value={cancelPassword} 
-                onChange={(e) => setCancelPassword(e.target.value)} 
-                className="w-full p-3.5 bg-slate-50 border-2 border-slate-100 rounded-xl font-black tracking-widest focus:border-red-500 outline-none text-center"
-                placeholder="••••••••" 
-              />
-            </div>
-
-            <div className="flex flex-col gap-2">
-              <button 
-                onClick={confirmCancelation} 
-                className="w-full py-4 bg-red-600 text-white font-black rounded-xl uppercase tracking-widest text-[10px] hover:bg-red-700 shadow-md shadow-red-500/20 transition-all flex items-center justify-center gap-2 cursor-pointer"
-              >
-                Remover Definitivamente
-              </button>
-              <button 
-                onClick={() => { setShowCancelModal(null); setCancelPassword(''); }} 
-                className="py-2 text-slate-400 font-bold uppercase text-[9px] hover:text-slate-600"
-              >
-                Manter Reserva
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showReprintModal && (
-        <div className="fixed inset-0 bg-slate-900/95 backdrop-blur-md z-[140] flex items-center justify-center p-4 print:hidden">
-          <div className="bg-white rounded-[2rem] p-8 max-w-md w-full shadow-2xl text-center relative">
-            <button 
-              onClick={() => { setShowReprintModal(false); setReprintId(''); setReprintPassword(''); }}
-              className="absolute top-6 right-6 p-2 text-slate-400 hover:text-slate-600 rounded-full transition-all"
-            >
-              <X className="w-5 h-5" />
-            </button>
-
-            <div className="bg-blue-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-blue-600">
-              <Search className="w-7 h-7" />
-            </div>
-
-            <h3 className="text-xl font-black uppercase text-slate-800 mb-1">Segunda Via do Termo</h3>
-            <p className="text-slate-500 text-xs mb-6">
-              Insira o código do protocolo e a sua senha para recuperar o documento.
-            </p>
-
-            <div className="space-y-4 text-left mb-6">
+      {/* MODAL: DETALHES DO DIA SELECIONADO */}
+      {selectedDayReservas && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+          <div className="bg-white rounded-[2.5rem] max-w-lg w-full shadow-2xl overflow-hidden animate-scale-up">
+            <div className="bg-blue-800 p-6 text-white flex justify-between items-center">
               <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase ml-1 block mb-1">Código de Protocolo</label>
-                <input 
-                  type="text" 
-                  value={reprintId} 
-                  onChange={(e) => setReprintId(e.target.value)} 
-                  placeholder="EX: P55GA8DDG" 
-                  className="w-full p-3.5 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold uppercase text-center focus:border-blue-600 outline-none text-sm tracking-wider"
-                />
+                <h3 className="font-black text-sm uppercase tracking-wider">
+                  Reservas do Dia {selectedDayReservas.date.split('-').reverse().join('/')}
+                </h3>
+                <p className="text-blue-200 text-xs mt-0.5">{selectedDayReservas.items.length} agendamento(s) localizado(s)</p>
               </div>
-
-              <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase ml-1 block mb-1">Senha do Utilizador</label>
-                <input 
-                  type="password" 
-                  value={reprintPassword} 
-                  onChange={(e) => setReprintPassword(e.target.value)} 
-                  placeholder="••••••••" 
-                  className="w-full p-3.5 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold text-center focus:border-blue-600 outline-none text-sm tracking-widest"
-                />
-              </div>
-            </div>
-
-            <div className="flex flex-col gap-3">
-              <button 
-                onClick={handleFetchSecondCopy} 
-                disabled={loadingSecondCopy}
-                className="w-full py-4 bg-blue-600 text-white font-black rounded-xl uppercase tracking-widest text-xs hover:bg-blue-700 shadow-lg shadow-blue-500/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
-              >
-                {loadingSecondCopy ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
-                {loadingSecondCopy ? 'A procurar...' : 'Buscar e Gerar Termo'}
-              </button>
-
-              <button 
-                onClick={() => { setShowReprintModal(false); setReprintId(''); setReprintPassword(''); }} 
-                className="py-2 text-slate-400 font-bold uppercase text-[10px] hover:text-slate-600 transition-all"
-              >
-                Voltar
+              <button onClick={() => setSelectedDayReservas(null)} className="p-2 bg-white/10 hover:bg-white/20 rounded-xl transition-all cursor-pointer">
+                <X className="w-5 h-5 text-white" />
               </button>
             </div>
-          </div>
-        </div>
-      )}
 
-      {/* TERMO DE RESPONSABILIDADE FORMAL (MODELO OFICIAL) */}
-      {showReceipt && (
-        <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[100] flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-none md:rounded-[2rem] w-full max-w-3xl shadow-2xl overflow-hidden my-auto">
-            
-            <div className="bg-yellow-100 border-b-2 border-yellow-300 p-4 text-center print:hidden">
-              <p className="text-yellow-800 text-sm font-bold flex items-center justify-center gap-2">
-                <AlertCircle className="w-5 h-5" /> 
-                Atenção: Baixe este termo em PDF, assine digitalmente via GOV.BR (http://assinador.iti.br/) e envie para: reservaccbs@gmail.com
-              </p>
-            </div>
+            <div className="p-6 max-h-96 overflow-y-auto space-y-3">
+              {selectedDayReservas.items.map(r => (
+                <div key={r.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className={`text-[9px] font-black uppercase px-2.5 py-1 rounded-full ${obterEstiloTag(r)}`}>
+                      {r.auditorio}
+                    </span>
+                    {r.historicoTransferencia && (
+                      <span className="flex items-center gap-1 bg-purple-100 text-purple-800 text-[9px] font-black px-2 py-0.5 rounded-full border border-purple-200">
+                        🔄 REMANEJADO
+                      </span>
+                    )}
+                  </div>
 
-            <div 
-              className="p-10 space-y-8" 
-              ref={termoRef} 
-              style={{ backgroundColor: '#ffffff', color: '#000000', width: '100%' }}
-            >
-              <div className="flex justify-between items-center pb-4" style={{ borderBottom: '1px solid #e2e8f0' }}>
-                 <img src={UFCG_LOGO} alt="UFCG" className="h-14 w-14 object-contain bg-white" />
-                 <div className="text-center flex-1 px-4">
-                   <h2 className="text-[14px] font-bold uppercase tracking-tight text-black leading-tight" style={{ color: '#000000' }}>
-                     UNIVERSIDADE FEDERAL DE CAMPINA GRANDE - UFCG
-                   </h2>
-                   <h3 className="text-[14px] font-bold text-black uppercase leading-normal" style={{ color: '#000000' }}>
-                     CENTRO DE CIÊNCIAS BIOLÓGICAS E DA SAÚDE - CCBS
-                   </h3>
-                   <p className="text-[14px] font-black mt-2 uppercase tracking-wide text-black" style={{ color: '#000000' }}>
-                     TERMO DE RESPONSABILIDADE PARA UTILIZAÇÃO DE ESPAÇO
-                   </p>
-                 </div>
-                 <img src={CCBS_LOGO} alt="CCBS" className="w-[2cm] h-auto object-contain bg-white" />
-              </div>
-
-              <div className="text-xs space-y-4 text-black leading-relaxed" style={{ color: '#000000' }}>
-                <p>
-                  Eu, <strong>{showReceipt.requisitante || showReceipt.requinisitante}</strong>, CPF nº <strong>{showReceipt.cpf}</strong>, 
-                  E-mail: <strong>{showReceipt.email}</strong> e contato: <strong>{showReceipt.telefone}</strong>, 
-                  servidor(a) vinculado(a) à unidade <strong>{showReceipt.setor || 'Não informado'}</strong>, 
-                  na condição de responsável pelo evento <strong>"{showReceipt.nomeEvento}"</strong>, a ser 
-                  realizado no <strong>{showReceipt.auditorio}</strong> do Centro de Ciências Biológicas e da Saúde (CCBS/UFCG), 
-                  no dia <strong>{showReceipt.data ? showReceipt.data.split('-').reverse().join('/') : ''}</strong>, das <strong>{showReceipt.horaInicio}</strong> às <strong>{showReceipt.horaFim} h</strong>, 
-                  assumo integral responsabilidade pela utilização do referido espaço durante o período autorizado.
-                </p>
-
-                <p className="font-bold pt-2">Declaro estar ciente e de acordo com as seguintes condições:</p>
-
-                <div className="space-y-3" style={{ color: '#000000' }}>
-                  <p><strong>CLÁUSULA PRIMEIRA - DA CONSERVAÇÃO DO PATRIMÔNIO:</strong> Comprometo-me a zelar pela conservação das instalações, mobiliários, equipamentos e demais bens patrimoniais existentes no {showReceipt.auditorio} do CCBS, responsabilizando-me por danos decorrentes de uso inadequado, negligência, imprudência ou imperícia dos participantes do evento sob minha responsabilidade.</p>
-                  <p><strong>CLÁUSULA SEGUNDA - DA UTILIZAÇÃO DO ESPAÇO:</strong> Comprometo-me a utilizar o espaço exclusivamente para a finalidade previamente informada e autorizada pela Direção do CCBS, observando as normas institucionais vigentes e as orientações da Administração do Centro.</p>
-                  <p><strong>CLÁUSULA TERCEIRA - DA ORGANIZAÇÃO E LIMPEZA:</strong> Ao término do evento, comprometo-me a entregar o espaço em condições adequadas de organização, conservação e limpeza, preservando a disposição original do mobiliário e dos equipamentos disponibilizados.</p>
-                  <p><strong>CLÁUSULA QUARTA - DOS EQUIPAMENTOS E RECURSOS:</strong> Declaro ter recebido, em perfeito estado de funcionamento, os equipamentos eventualmente disponibilizados para o evento, responsabilizando-me por sua correta utilização e devolução nas mesmas condições iniciais. Ao término do evento comprometo-me a desligar as luzes e aparelhos de ar-condicionado e de informática.</p>
-                  <p><strong>CLÁUSULA QUINTA - DA SEGURANÇA:</strong> Comprometo-me a respeitar a capacidade máxima do local, bem como a não realizar atividades que possam colocar em risco a integridade física dos participantes ou do patrimônio público.</p>
                   <div>
-                    <strong>CLÁUSULA SEXTA - DAS VEDAÇÕES:</strong> É vedado:
-                    <ul className="list-none pl-4 mt-1 space-y-1">
-                      <li>I - Utilizar o espaço para finalidade diversa da autorizada;</li>
-                      <li>II - Promover atividades que contrariem as normas institucionais da UFCG;</li>
-                      <li>III - Fixar materiais em paredes, portas, janelas, mobiliários ou equipamentos de forma que causem danos ao patrimônio;</li>
-                      <li>IV - Alterar instalações elétricas, de rede, sonorização ou quaisquer outros sistemas sem autorização prévia da Administração do CCBS.</li>
-                    </ul>
+                    <h4 className="font-black text-slate-800 text-sm">{r.nomeEvento}</h4>
+                    <p className="text-xs text-slate-500 font-bold">{r.horaInicio} às {r.horaFim} • Resp: {r.requisitante}</p>
                   </div>
-                  <p><strong>CLÁUSULA SÉTIMA - DAS RESPONSABILIDADES:</strong> O descumprimento das disposições deste Termo poderá implicar a suspensão de futuras autorizações de uso, sem prejuízo da apuração de responsabilidades administrativas, civis e legais cabíveis, bem como da obrigação de ressarcimento ao erário em caso de dano ao patrimônio público.</p>
-                </div>
 
-                <p className="pt-4 text-center">Por estar de acordo com as condições acima estabelecidas, firmo o presente Termo de Responsabilidade.</p>
+                  {r.historicoTransferencia && (
+                    <div className="p-2 bg-purple-50 rounded-xl border border-purple-100 text-[10px] text-purple-900 font-medium">
+                      <p className="font-bold uppercase text-[9px] text-purple-700">Histórico de Alteração:</p>
+                      <p>{r.historicoTransferencia}</p>
+                    </div>
+                  )}
 
-                <div className="text-center pt-6 space-y-8">
-                  <p>Campina Grande/PB, {formatarDataExtenso(showReceipt.dataCriacao)}</p>
-                  <div className="w-1/2 mx-auto pt-2 mt-12" style={{ borderTop: '1px solid #000000' }}>
-                    <p className="font-bold uppercase text-xs">RESPONSÁVEL PELO EVENTO: {showReceipt.requisitante}</p>
-                    <p className="text-xs">Assinatura Digital GOV.BR</p>
+                  <div className="flex items-center justify-between pt-2 border-t border-slate-200 text-xs">
+                    <span className={`font-bold ${r.status === 'Confirmado' ? 'text-emerald-600' : 'text-amber-600'}`}>{r.status}</span>
+                    <button onClick={() => setShowCancelModal(r)} className="text-red-600 font-bold hover:underline cursor-pointer">Cancelar</button>
                   </div>
                 </div>
-              </div>
-
-              <div className="mt-8 pt-4 flex justify-between items-center opacity-50" style={{ borderTop: '1px solid #e2e8f0' }}>
-                <div className="flex gap-2 items-center">
-                  <QrCode className="w-8 h-8 text-black" />
-                  <div style={{ color: '#000000' }}>
-                    <p className="text-[8px] font-black uppercase">PROTOCOLO ELETRÔNICO: #{showReceipt.id}</p>
-                    <p className="text-[8px] font-bold">Emitido em: {showReceipt.dataCriacao}</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="p-8 bg-slate-50 flex gap-4 border-t border-slate-200 print:hidden">
-              <button
-                onClick={handleDownloadPDF}
-                disabled={generatingPDF}
-                className="flex-1 py-4 bg-blue-700 text-white font-black rounded-xl flex items-center justify-center gap-2 hover:bg-blue-800 transition-all uppercase tracking-widest text-xs disabled:opacity-50 cursor-pointer"
-              >
-                {generatingPDF ? <Loader2 className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
-                {generatingPDF ? 'Gerando PDF...' : 'Baixar Termo PDF'}
-              </button>
-              <button onClick={() => setShowReceipt(null)} className="px-8 py-4 bg-white border-2 border-slate-200 text-slate-600 font-black rounded-xl hover:bg-slate-100 transition-all uppercase tracking-widest text-xs cursor-pointer">
-                Fechar
-              </button>
+              ))}
             </div>
           </div>
         </div>
       )}
 
-      {showAdminUnlock && (
-        <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[140] flex items-center justify-center p-4 print:hidden">
-          <div className="bg-white rounded-[2rem] p-8 max-w-sm w-full shadow-2xl text-center">
-            <div className="bg-amber-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-amber-600">
-              <Shield className="w-7 h-7" />
+      {/* MODAL: DIGITAR SENHA DE CANCELAMENTO */}
+      {showCancelModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[150] flex items-center justify-center p-4">
+          <div className="bg-white rounded-[2rem] max-w-sm w-full p-6 shadow-2xl space-y-4">
+            <h3 className="font-black text-slate-800 text-sm uppercase">Confirmar Cancelamento</h3>
+            <p className="text-xs text-slate-500 font-semibold">Digite a senha cadastrada para o protocolo {showCancelModal.id}:</p>
+            <input type="password" value={cancelPassword} onChange={e => setCancelPassword(e.target.value)} placeholder="Senha de Segurança" className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl text-center font-bold text-xs" />
+            <div className="flex gap-2">
+              <button onClick={() => setShowCancelModal(null)} className="flex-1 py-3 bg-slate-100 text-slate-600 font-bold text-xs uppercase rounded-xl">Voltar</button>
+              <button onClick={confirmCancelation} className="flex-1 py-3 bg-red-600 text-white font-bold text-xs uppercase rounded-xl">Confirmar</button>
             </div>
-            <h3 className="text-lg font-black uppercase mb-1">Modo Administrador</h3>
-            <p className="text-slate-500 text-xs mb-6">Insira a Senha Mestra para desbloquear os dados de contato e alterar o status das reservas.</p>
-            
-            <input 
-              type="password" 
-              value={adminUnlockPassword} 
-              onChange={(e) => setAdminUnlockPassword(e.target.value)} 
-              placeholder="Senha Mestra" 
-              className="w-full p-3.5 bg-slate-50 border-2 border-slate-100 rounded-xl font-black text-center focus:border-amber-500 outline-none mb-4"
-            />
+          </div>
+        </div>
+      )}
 
-            <div className="flex flex-col gap-2">
-              <button 
-                onClick={handleAdminUnlock} 
-                className="w-full py-4 bg-amber-600 text-white font-black rounded-xl uppercase tracking-widest text-[10px] hover:bg-amber-700 transition-all cursor-pointer"
-              >
-                Acessar Dados / Administrar
-              </button>
-              <button 
-                onClick={() => { setShowAdminUnlock(false); setAdminUnlockPassword(''); }} 
-                className="py-2 text-slate-400 font-bold uppercase text-[9px]"
-              >
-                Cancelar
+      {/* MODAL: DESBLOQUEAR MODO ADMIN */}
+      {showAdminUnlock && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[150] flex items-center justify-center p-4">
+          <div className="bg-white rounded-[2rem] max-w-sm w-full p-6 shadow-2xl space-y-4">
+            <h3 className="font-black text-slate-800 text-sm uppercase">Painel do Administrador</h3>
+            <input type="password" value={adminUnlockPassword} onChange={e => setAdminUnlockPassword(e.target.value)} placeholder="Senha Mestra" className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl text-center font-bold text-xs" />
+            <div className="flex gap-2">
+              <button onClick={() => setShowAdminUnlock(false)} className="flex-1 py-3 bg-slate-100 text-slate-600 font-bold text-xs uppercase rounded-xl">Cancelar</button>
+              <button onClick={handleAdminUnlock} className="flex-1 py-3 bg-blue-700 text-white font-bold text-xs uppercase rounded-xl">Acessar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: SEGUNDA VIA DO TERMO */}
+      {showReprintModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[150] flex items-center justify-center p-4">
+          <div className="bg-white rounded-[2rem] max-w-sm w-full p-6 shadow-2xl space-y-4">
+            <h3 className="font-black text-slate-800 text-sm uppercase">2ª Via do Termo</h3>
+            <input type="text" value={reprintId} onChange={e => setReprintId(e.target.value)} placeholder="Código do Protocolo" className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold text-xs uppercase" />
+            <input type="password" value={reprintPassword} onChange={e => setReprintPassword(e.target.value)} placeholder="Senha de Segurança" className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold text-xs" />
+            <div className="flex gap-2">
+              <button onClick={() => setShowReprintModal(false)} className="flex-1 py-3 bg-slate-100 text-slate-600 font-bold text-xs uppercase rounded-xl">Sair</button>
+              <button onClick={handleFetchSecondCopy} disabled={loadingSecondCopy} className="flex-1 py-3 bg-blue-700 text-white font-bold text-xs uppercase rounded-xl flex items-center justify-center gap-1">
+                {loadingSecondCopy ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Buscar'}
               </button>
             </div>
           </div>
@@ -1174,312 +1322,92 @@ export function App() {
       )}
 
       {/* MODAL: AGENDAMENTO POR PROCESSO */}
-      {showProcessModal && (() => {
-        const previa = montarPreviaProcesso();
-        const validos = previa.filter(p => !p.conflito).length;
-        const inputCls = "w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold text-base sm:text-sm outline-none focus:border-blue-600";
-        const labelCls = "text-[10px] font-black text-slate-400 uppercase ml-1 block mb-1";
-        const dias = [['1','Segunda'],['2','Terça'],['3','Quarta'],['4','Quinta'],['5','Sexta']];
-
-        return (
-          <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[140] flex items-center justify-center p-3 sm:p-4 print:hidden">
-            <div className="bg-white rounded-[1.5rem] sm:rounded-[2rem] max-w-2xl w-full shadow-2xl flex flex-col max-h-[92vh] relative">
-
-              {/* Cabeçalho */}
-              <div className="flex items-center justify-between p-4 sm:p-6 border-b border-slate-100 flex-shrink-0">
-                <div className="flex items-center gap-3">
-                  <div className="bg-blue-100 p-2.5 rounded-2xl text-blue-700"><CalendarCheck className="w-6 h-6" /></div>
-                  <div>
-                    <h3 className="text-base sm:text-xl font-black uppercase text-slate-800 leading-tight">Agendamento por Processo</h3>
-                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Reservas recorrentes • Confirmação do administrador</p>
-                  </div>
-                </div>
-                <button onClick={fecharModalProcesso} className="p-2 text-slate-400 hover:text-slate-600 rounded-full"><X className="w-5 h-5" /></button>
-              </div>
-
-              {/* Corpo rolável */}
-              <div className="p-4 sm:p-6 space-y-4 overflow-y-auto flex-1">
-                <div>
-                  <label className={labelCls}>Local</label>
-                  <select value={processData.auditorio} onChange={e => setProcessData(p => ({ ...p, auditorio: e.target.value }))} className={inputCls + ' uppercase'}>
-                    {AUDITORIOS.map(a => <option key={a} value={a}>{a}</option>)}
-                  </select>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className={labelCls}>Nome do Evento</label>
-                    <input type="text" value={processData.nomeEvento} onChange={e => setProcessData(p => ({ ...p, nomeEvento: e.target.value }))} placeholder="Ex: Residência Multiprofissional" className={inputCls} />
-                  </div>
-                  <div>
-                    <label className={labelCls}>Nº do Processo SEI</label>
-                    <input type="text" value={processData.sei} onChange={e => setProcessData(p => ({ ...p, sei: e.target.value }))} placeholder="23096.000000/2026-00" className={inputCls} />
-                  </div>
-                </div>
-
-                {/* Critérios */}
-                <div className="space-y-3">
-                  <h4 className="font-black text-slate-800 uppercase text-xs tracking-wider border-b pb-1">Períodos e horários</h4>
-
-                  {criterios.map((c, i) => (
-                    <div key={c.id} className="bg-slate-50 border border-slate-100 rounded-2xl p-3 sm:p-4 space-y-3">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] font-black text-blue-700 uppercase">Critério {i + 1}</span>
-                        {criterios.length > 1 && (
-                          <button onClick={() => setCriterios(prev => prev.filter(x => x.id !== c.id))} className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg" title="Remover critério">
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        )}
-                      </div>
-
-                      <div>
-                        <label className={labelCls}>Dia da semana</label>
-                        <select value={c.diaSemana} onChange={e => atualizarCriterio(c.id, 'diaSemana', e.target.value)} className={inputCls}>
-                          {dias.map(([v, n]) => <option key={v} value={v}>{n}-feira</option>)}
-                        </select>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-3">
-                        <div>
-                          <label className={labelCls}>Hora início</label>
-                          <select value={c.horaInicio} onChange={e => atualizarCriterio(c.id, 'horaInicio', e.target.value)} className={inputCls}>
-                            {HORARIOS.slice(0, -1).map(h => <option key={h}>{h}</option>)}
-                          </select>
-                        </div>
-                        <div>
-                          <label className={labelCls}>Hora fim</label>
-                          <select value={c.horaFim} onChange={e => atualizarCriterio(c.id, 'horaFim', e.target.value)} className={inputCls}>
-                            {HORARIOS.map(h => <option key={h} disabled={h <= c.horaInicio}>{h}</option>)}
-                          </select>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-3">
-                        <div>
-                          <label className={labelCls}>De</label>
-                          <input type="date" value={c.dataInicio} onChange={e => atualizarCriterio(c.id, 'dataInicio', e.target.value)} className={inputCls} />
-                        </div>
-                        <div>
-                          <label className={labelCls}>Até</label>
-                          <input type="date" value={c.dataFim} min={c.dataInicio} onChange={e => atualizarCriterio(c.id, 'dataFim', e.target.value)} className={inputCls} />
-                        </div>
-                      </div>
-
-                      <p className="text-[10px] text-slate-400 font-bold">
-                        {gerarDatasCriterio(c).length} data(s) neste critério
-                      </p>
-                    </div>
-                  ))}
-
-                  <button
-                    onClick={() => setCriterios(prev => [...prev, criterioVazio()])}
-                    className="w-full py-3 border-2 border-dashed border-blue-200 text-blue-700 font-black rounded-xl uppercase text-[10px] tracking-widest hover:bg-blue-50 transition-all cursor-pointer"
-                  >
-                    + Adicionar outro critério
-                  </button>
-                </div>
-
-                {/* Prévia */}
-                <div className="space-y-2">
-                  <h4 className="font-black text-slate-800 uppercase text-xs tracking-wider border-b pb-1">
-                    Prévia ({validos} de {previa.length} disponíveis)
-                  </h4>
-                  {previa.length === 0 ? (
-                    <p className="text-xs text-slate-400 italic">Preencha os critérios para ver as datas.</p>
-                  ) : (
-                    <div className="max-h-40 overflow-y-auto space-y-1 pr-1">
-                      {previa.map((p, idx) => (
-                        <div key={idx} className={`flex items-center justify-between text-[11px] font-bold px-3 py-1.5 rounded-lg ${p.conflito ? 'bg-red-50 text-red-600' : 'bg-emerald-50 text-emerald-700'}`}>
-                          <span>{p.data.split('-').reverse().join('/')}</span>
-                          <span>{p.horaInicio} - {p.horaFim}</span>
-                          <span className="uppercase text-[9px]">{p.conflito ? 'Conflito' : 'Livre'}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {/* Senha admin */}
-                <div className="bg-amber-50 p-4 rounded-2xl border-2 border-amber-200">
-                  <div className="flex items-center gap-2 mb-2 text-amber-900">
-                    <Shield className="w-3.5 h-3.5" />
-                    <span className="text-[10px] font-black uppercase tracking-widest">Senha do Administrador</span>
-                  </div>
-                  <input type="password" value={processData.adminSenha} onChange={e => setProcessData(p => ({ ...p, adminSenha: e.target.value }))} placeholder="Senha Mestra" className="w-full p-3 bg-white border border-amber-200 rounded-xl text-center font-bold tracking-widest text-base sm:text-sm outline-none focus:border-amber-500" />
-                </div>
-              </div>
-
-              {/* Rodapé fixo */}
-              <div className="p-4 sm:p-6 border-t border-slate-100 flex flex-col-reverse sm:flex-row gap-2 sm:gap-3 flex-shrink-0">
-                <button onClick={fecharModalProcesso} className="px-6 py-3 bg-white border-2 border-slate-200 text-slate-600 font-black rounded-xl uppercase tracking-widest text-[10px] hover:bg-slate-100 cursor-pointer">
-                  Cancelar
-                </button>
-                <button
-                  onClick={handleSalvarProcesso}
-                  disabled={savingProcess || validos === 0}
-                  className="flex-1 py-3.5 bg-blue-600 text-white font-black rounded-xl uppercase tracking-widest text-[10px] hover:bg-blue-700 shadow-lg shadow-blue-500/20 flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
-                >
-                  {savingProcess ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
-                  {savingProcess ? 'Salvando...' : `Confirmar ${validos} agendamento(s)`}
-                </button>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
-
-      {/* MODAL DA CENTRAL DE AJUDA COMPLETO */}
-      {showHelpModal && (
-        <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[140] flex items-center justify-center p-4 print:hidden">
-          <div className="bg-white rounded-[2rem] p-6 md:p-8 max-w-2xl w-full shadow-2xl text-left relative flex flex-col max-h-[90vh]">
-            
-            <button 
-              onClick={() => setShowHelpModal(false)}
-              className="absolute top-6 right-6 p-2 text-slate-400 hover:text-slate-600 rounded-full transition-all cursor-pointer"
-              title="Fechar Central de Ajuda"
-            >
-              <X className="w-6 h-6" />
-            </button>
-
-            <div className="flex items-center gap-3 mb-4 pb-4 border-b border-slate-100 flex-shrink-0">
-              <div className="bg-blue-100 p-3 rounded-2xl text-blue-700">
-                <HelpCircle className="w-7 h-7" />
-              </div>
-              <div>
-                <h3 className="text-xl font-black uppercase text-slate-800">Central de Ajuda</h3>
-                <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Guia Passo a Passo de Agendamento • CCBS/UFCG</p>
-              </div>
+      {showProcessModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[150] flex items-center justify-center p-4">
+          <div className="bg-white rounded-[2.5rem] max-w-2xl w-full p-6 shadow-2xl space-y-4 overflow-hidden">
+            <div className="flex justify-between items-center border-b pb-3">
+              <h3 className="font-black text-slate-800 text-sm uppercase">Agendamento por Processo (SEI)</h3>
+              <button onClick={fecharModalProcesso} className="p-2 bg-slate-100 rounded-xl"><X className="w-4 h-4" /></button>
             </div>
 
-            <div className="space-y-6 text-xs text-slate-600 leading-relaxed overflow-y-auto pr-2 flex-1 scrollbar-thin">
-              
-              <div className="bg-blue-50/60 p-4 rounded-2xl border border-blue-100">
-                <p className="font-bold text-blue-900 text-sm mb-1">📅 Como Agendar um Espaço no CCBS/UFCG</p>
-                <p className="text-slate-700">
-                  Este guia vai te ensinar, de forma muito simples, como reservar o <strong>Auditório</strong>, a <strong>Sala de Reunião</strong> ou a <strong>Sala 01</strong>, além de como baixar o seu documento de confirmação.
-                </p>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                  <span className="font-black text-slate-800 block text-[11px] uppercase mb-1">1. Usuários Externos</span>
-                  <p className="text-slate-500 text-[11px]">Demais Centros da UFCG e instituições externas.</p>
-                  <p className="mt-2 text-slate-700 font-medium">
-                    <strong>Solicitação:</strong> Baixe o Anexo II (Ofício de Solicitação) no portal do CCBS <a href="https://ccbs.ufcg.edu.br/index.php/agendamento-de-espacos-fisicos" target="_blank" rel="noopener noreferrer" className="text-blue-600 font-bold underline">ccbs.ufcg.edu.br</a>., preencha-o e envie para: <a href="mailto:secretaria.ccbs@ufcg.edu.br" className="text-blue-600 underline font-bold">secretaria.ccbs@ufcg.edu.br</a>.
-                  </p>
-                </div>
-
-                <div className="bg-blue-50/40 p-4 rounded-2xl border border-blue-100">
-                  <span className="font-black text-blue-900 block text-[11px] uppercase mb-1">2. Usuários Internos (CCBS/UFCG)</span>
-                  <p className="text-slate-500 text-[11px]">Docentes, técnicos administrativos e estudantes vinculados ao Centro.</p>
-                  <p className="mt-2 text-slate-700 font-medium">
-                    Faça o agendamento diretamente por esta plataforma seguindo o passo a passo abaixo.
-                  </p>
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                <h4 className="font-black text-slate-800 uppercase text-xs tracking-wider border-b pb-1">Passo a Passo do Agendamento On-line</h4>
-
-                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-1">
-                  <p className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
-                    <span>🕒</span> Passo 1: Olhar o Calendário (Ver se o dia está livre)
-                  </p>
-                  <p>
-                    Antes de preencher qualquer papel, olhe para o lado direito da tela onde fica o Calendário. Use as setinhas azuladas (&lt; e &gt;) perto do nome do mês para mudar de mês se precisar. Dias que já possuem compromissos mostram uma barrinha colorida com o horário. Clique em cima do dia desejado para ver os detalhes. Se o seu horário estiver livre, siga para o Passo 2!
-                  </p>
-                </div>
-
-                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-1">
-                  <p className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
-                    <span>✍️</span> Passo 2: Preencher o Formulário (Lado Esquerdo da Tela)
-                  </p>
-                  <p>No painel "Novo Agendamento", preencha os campos na ordem:</p>
-                  <ul className="list-disc pl-4 space-y-1 mt-1 text-slate-600">
-                    <li><strong>Local & Data:</strong> Escolha o espaço e a data do evento.</li>
-                    <li><strong>Início e Fim:</strong> Escolha o horário de início e término.</li>
-                    <li><strong>Evento:</strong> Digite o nome ou assunto do evento (Ex: Defesa de TCC, Palestra).</li>
-                    <li><strong>Responsável:</strong> Digite seu nome completo.</li>
-                    <li><strong>Documentos e Contato:</strong> Preencha CPF, Telefone com DDD e E-mail.</li>
-                    <li><strong>Setor / Departamento:</strong> Digite a qual setor da UFCG você pertence (Ex: DC-CCBS).</li>
-                  </ul>
-                </div>
-
-                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-1">
-                  <p className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
-                    <span>🔒</span> Passo 3: Criar uma Senha de Segurança
-                  </p>
-                  <p>
-                    No final do formulário, digite uma senha simples de sua escolha no campo "Senha p/ Cancelamento". Guarde essa senha! Ela será exigida se você precisar cancelar o agendamento ou emitir a 2ª via do documento.
-                  </p>
-                </div>
-
-                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-1">
-                  <p className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
-                    <span>🚀</span> Passo 4: Confirmar o Agendamento
-                  </p>
-                  <p>
-                    Clique no botão azul "Confirmar Agendamento". Se der tudo certo, uma mensagem de sucesso aparecerá e o Termo de Responsabilidade se abrirá na tela.
-                  </p>
-                </div>
-
-                <div className="bg-amber-50 p-4 rounded-2xl border border-amber-200 text-amber-900 space-y-2">
-                  <p className="font-black text-xs uppercase flex items-center gap-1.5 text-amber-900">
-                    <span>📄</span> Passo 5: Baixar o Termo em PDF e Enviar (Obrigatório)
-                  </p>
-                  <p>
-                    Clique no botão <strong>"Baixar Termo PDF"</strong> e depois em "Fechar".
-                  </p>
-                  <div className="bg-white/80 p-3 rounded-xl border border-amber-200 text-xs space-y-1">
-                    <p className="font-bold text-slate-800">O que fazer com o arquivo baixado?</p>
-                    <ol className="list-decimal pl-4 space-y-1 text-slate-700">
-                      <li>Acesse o site do GOV.BR: <a href="https://assinador.iti.br" target="_blank" rel="noopener noreferrer" className="text-blue-600 font-bold underline">assinador.iti.br</a>.</li>
-                      <li>Entre com sua conta do governo e assine o PDF digitalmente.</li>
-                      <li>
-                        Conforme a <strong>Resolução CONSAD/CCBS n° 01/2026</strong>, envie o termo assinado para: <a href="mailto:reservaccbs@gmail.com" className="font-bold text-blue-700 underline">reservaccbs@gmail.com</a> em até <strong>48 horas</strong>, sob pena de cancelamento da reserva.
-                      </li>
-                    </ol>
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-2">
-                <h4 className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
-                  <span>💡</span> Dicas Úteis
-                </h4>
-                <ul className="list-disc pl-4 space-y-1 text-slate-600">
-                  <li><strong>Segunda Via do Documento:</strong> Esqueceu de baixar? No topo da página, clique em "2ª Via do Termo", digite seu protocolo e a senha criada no Passo 3.</li>
-                  <li><strong>Cancelamentos:</strong> Localize sua reserva no calendário, clique no ícone da lixeira e, em seguida, digite a senha criada no Passo 3.</li>
-                  <li><strong>Finais de Semana:</strong> O sistema aceita agendamentos apenas em dias úteis (Segunda a Sexta).</li>
-                </ul>
-              </div>
-
-              <div className="bg-slate-900 text-white p-4 rounded-2xl space-y-2">
-                <h4 className="font-black uppercase text-[11px] text-blue-400 tracking-wider">📞 Contatos Oficiais</h4>
-                <div className="space-y-1 text-[11px]">
-                  <p><strong>Envio do Termo de Responsabilidade:</strong> <a href="mailto:reservaccbs@gmail.com" className="text-blue-300 underline font-mono">reservaccbs@gmail.com</a></p>
-                  <p><strong>Dúvidas e Sugestões:</strong> <a href="mailto:renato.freitas@tecnico.ufcg.edu.br" className="text-blue-300 underline font-mono">renato.freitas@tecnico.ufcg.edu.br</a></p>
-                </div>
-              </div>
-
-            </div>
-
-            <div className="pt-4 mt-2 border-t border-slate-100 flex-shrink-0">
-              <button 
-                onClick={() => setShowHelpModal(false)} 
-                className="w-full py-4 bg-blue-600 text-white font-black rounded-xl uppercase tracking-widest text-[10px] hover:bg-blue-700 transition-all text-center cursor-pointer shadow-lg shadow-blue-500/20"
+            <div className="space-y-3 max-h-96 overflow-y-auto pr-1">
+              <select 
+                value={processData.auditorio} 
+                onChange={e => setProcessData(prev => ({ ...prev, auditorio: e.target.value }))}
+                className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold text-xs uppercase"
               >
-                Entendido
+                {AUDITORIOS.map(a => (
+                  <option key={a} value={a} disabled={a === 'SALA DE REUNIÃO' && salaReuniaoBloqueada}>
+                    {a} {a === 'SALA DE REUNIÃO' && salaReuniaoBloqueada ? '(Em Manutenção)' : ''}
+                  </option>
+                ))}
+              </select>
+
+              <input type="text" value={processData.nomeEvento} onChange={e => setProcessData(prev => ({ ...prev, nomeEvento: e.target.value }))} placeholder="Nome do Evento / Disciplina" className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold text-xs" />
+              <input type="text" value={processData.sei} onChange={e => setProcessData(prev => ({ ...prev, sei: e.target.value }))} placeholder="Número do Processo SEI" className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold text-xs" />
+
+              {criterios.map((c) => (
+                <div key={c.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
+                  <div className="grid grid-cols-3 gap-2">
+                    <select value={c.diaSemana} onChange={e => atualizarCriterio(c.id, 'diaSemana', e.target.value)} className="p-2 bg-white rounded-xl border text-xs font-bold">
+                      <option value="1">Segunda</option><option value="2">Terça</option><option value="3">Quarta</option><option value="4">Quinta</option><option value="5">Sexta</option>
+                    </select>
+                    <input type="time" value={c.horaInicio} onChange={e => atualizarCriterio(c.id, 'horaInicio', e.target.value)} className="p-2 bg-white rounded-xl border text-xs font-bold" />
+                    <input type="time" value={c.horaFim} onChange={e => atualizarCriterio(c.id, 'horaFim', e.target.value)} className="p-2 bg-white rounded-xl border text-xs font-bold" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <input type="date" value={c.dataInicio} onChange={e => atualizarCriterio(c.id, 'dataInicio', e.target.value)} className="p-2 bg-white rounded-xl border text-xs font-bold" />
+                    <input type="date" value={c.dataFim} onChange={e => atualizarCriterio(c.id, 'dataFim', e.target.value)} className="p-2 bg-white rounded-xl border text-xs font-bold" />
+                  </div>
+                </div>
+              ))}
+
+              <input type="password" value={processData.adminSenha} onChange={e => setProcessData(prev => ({ ...prev, adminSenha: e.target.value }))} placeholder="Senha Mestra do Admin" className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl text-center font-bold text-xs" />
+            </div>
+
+            <div className="flex gap-2 border-t pt-3">
+              <button onClick={fecharModalProcesso} className="flex-1 py-3 bg-slate-100 font-bold text-xs uppercase rounded-xl">Cancelar</button>
+              <button onClick={handleSalvarProcesso} disabled={savingProcess} className="flex-1 py-3 bg-blue-700 text-white font-bold text-xs uppercase rounded-xl flex justify-center items-center gap-1">
+                {savingProcess ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Confirmar Lote'}
               </button>
             </div>
-
           </div>
         </div>
       )}
 
+      {/* MODAL: TERMO IMPRESSO DE RESERVA */}
+      {showReceipt && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
+          <div className="bg-white rounded-[2.5rem] max-w-xl w-full p-6 shadow-2xl overflow-hidden space-y-4">
+            <div ref={termoRef} className="p-6 bg-white space-y-4 text-slate-800">
+              <div className="text-center border-b pb-4">
+                <h2 className="font-black text-base uppercase">Comprovante de Agendamento</h2>
+                <p className="text-xs text-slate-500 font-bold">CCBS / UFCG • Protocolo: {showReceipt.id}</p>
+              </div>
+
+              <div className="space-y-2 text-xs font-semibold">
+                <p><strong>Evento:</strong> {showReceipt.nomeEvento}</p>
+                <p><strong>Local:</strong> {showReceipt.auditorio}</p>
+                <p><strong>Data:</strong> {showReceipt.data.split('-').reverse().join('/')} ({showReceipt.horaInicio} - {showReceipt.horaFim})</p>
+                <p><strong>Requisitante:</strong> {showReceipt.requisitante} (CPF: {showReceipt.cpf})</p>
+                <p><strong>Contato:</strong> {showReceipt.email} | Tel: {showReceipt.telefone}</p>
+                <p><strong>Setor:</strong> {showReceipt.setor || 'N/I'}</p>
+              </div>
+
+              <div className="text-center pt-4 border-t text-[10px] text-slate-400 font-bold uppercase">
+                Emitido em {formatarDataExtenso(showReceipt.dataCriacao)}
+              </div>
+            </div>
+
+            <div className="flex gap-2">
+              <button onClick={() => setShowReceipt(null)} className="flex-1 py-3 bg-slate-100 font-bold text-xs uppercase rounded-xl">Fechar</button>
+              <button onClick={handleDownloadPDF} disabled={generatingPDF} className="flex-1 py-3 bg-blue-700 text-white font-bold text-xs uppercase rounded-xl flex items-center justify-center gap-1">
+                {generatingPDF ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Baixar PDF'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
-
-// Exportação padrão indispensável para o main.tsx
-export default App;
