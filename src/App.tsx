@@ -82,6 +82,13 @@ const criterioVazio = () => ({
   dataFim: ''
 });
 
+// Data local (toISOString usa UTC e vira "amanhã" depois das 21h no Brasil)
+const hojeISO = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+const formatarBR = (iso: string) => (iso ? iso.split('-').reverse().join('/') : '');
+
 // Função para formatar datas por extenso no documento formal
 function formatarDataExtenso(dataCriacao: string) {
   if (!dataCriacao) return new Date().toLocaleDateString('pt-BR', { day: 'numeric', month: 'long', year: 'numeric' });
@@ -120,12 +127,11 @@ export function App() {
   });
   const [criterios, setCriterios] = useState([criterioVazio()]);
 
-  // --- GESTÃO DINÂMICA DA SALA DE REUNIÃO ---
-  const [salaReuniaoBloqueada, setSalaReuniaoBloqueada] = useState(true);
-  const [motivoIndisponibilidade, setMotivoIndisponibilidade] = useState('Manutenção no sistema de climatização');
-  const [dataReabertura, setDataReabertura] = useState('');
-  const [editandoMotivo, setEditandoMotivo] = useState('');
-  const [editandoDataReabertura, setEditandoDataReabertura] = useState('');
+  // --- BLOQUEIOS POR PERÍODO (MANUTENÇÃO) ---
+  const [bloqueios, setBloqueios] = useState<any[]>([]);
+  const [novoBloqueio, setNovoBloqueio] = useState({
+    auditorio: AUDITORIOS[1], dataInicio: '', dataFim: '', motivo: ''
+  });
   const [enviandoEmails, setEnviandoEmails] = useState(false);
 
   // --- CONTROLO DE INTERFACE ---
@@ -161,7 +167,7 @@ export function App() {
   };
 
   // ==========================================
-  // 3. EFEITOS (AUTENTICAÇÃO, FIRESTORE E CONFIGS)
+  // 3. EFEITOS (AUTENTICAÇÃO, FIRESTORE E BLOQUEIOS)
   // ==========================================
   useEffect(() => {
     if (!auth) {
@@ -203,34 +209,14 @@ export function App() {
     return () => unsubscribe();
   }, [user]);
 
-  // Escuta em tempo real as configurações da Sala de Reunião
+  // Escuta em tempo real os períodos de bloqueio (manutenção)
   useEffect(() => {
     if (!user || !db) return;
-    const configRef = doc(db, 'artifacts', appId as string, 'public', 'data', 'configuracoes', 'sala_reuniao');
-
-    const unsubscribe = onSnapshot(configRef, (docSnap) => {
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        const motivo = data.motivo || 'Manutenção no sistema de climatização';
-        const dataLimite = data.dataReabertura || '';
-        const hojeStr = new Date().toISOString().split('T')[0];
-
-        // Reabertura automática se atinja/ultrapasse a data limite
-        let bloqueioAtivo = data.bloqueada ?? true;
-        if (dataLimite && hojeStr >= dataLimite) {
-          bloqueioAtivo = false;
-        }
-
-        setSalaReuniaoBloqueada(bloqueioAtivo);
-        setMotivoIndisponibilidade(motivo);
-        setDataReabertura(dataLimite);
-        setEditandoMotivo(motivo);
-        setEditandoDataReabertura(dataLimite);
-      }
-    }, (error) => {
-      console.error("Erro ao carregar configurações:", error);
-    });
-
+    const ref = collection(db, 'artifacts', appId as string, 'public', 'data', 'bloqueios_ccbs');
+    const unsubscribe = onSnapshot(ref, (snap) => {
+      const lista = snap.docs.map(d => ({ id: d.id, ...d.data() })) as any[];
+      setBloqueios(lista.sort((a, b) => a.dataInicio.localeCompare(b.dataInicio)));
+    }, (error) => console.error('Erro ao carregar bloqueios:', error));
     return () => unsubscribe();
   }, [user]);
 
@@ -243,8 +229,56 @@ export function App() {
   }, [reservas]);
 
   // ==========================================
-  // 4. FUNÇÕES DE SUPORTE, E-MAIL E ADMIN
+  // 4. FUNÇÕES DE SUPORTE, BLOQUEIOS, E-MAIL E ADMIN
   // ==========================================
+
+  // Retorna o bloqueio ativo para o ambiente/data, ou undefined
+  const buscarBloqueio = (auditorio: string, data: string) =>
+    bloqueios.find(b => b.auditorio === auditorio && data >= b.dataInicio && data <= b.dataFim);
+
+  // Bloqueios que ainda não terminaram
+  const bloqueiosVigentes = bloqueios.filter(b => b.dataFim >= hojeISO());
+
+  // Reservas já existentes dentro do período bloqueado
+  const afetadosPorBloqueio = (b: any) =>
+    reservas.filter(r =>
+      r.auditorio === b.auditorio && r.data >= b.dataInicio && r.data <= b.dataFim && r.data >= hojeISO()
+    );
+
+  const handleAdicionarBloqueio = async () => {
+    if (!isAdminMode) return showToast('Apenas administradores podem criar bloqueios.', 'error');
+    const { auditorio, dataInicio, dataFim, motivo } = novoBloqueio;
+    if (!dataInicio || !dataFim) return showToast('Informe a data inicial e a final.', 'error');
+    if (dataFim < dataInicio) return showToast('A data final não pode ser anterior à inicial.', 'error');
+    if (!db) return;
+
+    try {
+      const id = Math.random().toString(36).slice(2, 11).toUpperCase();
+      await setDoc(doc(db, 'artifacts', appId as string, 'public', 'data', 'bloqueios_ccbs', id), {
+        id, auditorio, dataInicio, dataFim,
+        motivo: motivo.trim() || 'Manutenção programada',
+        criadoEm: new Date().toLocaleString('pt-BR')
+      });
+      setNovoBloqueio(prev => ({ ...prev, dataInicio: '', dataFim: '', motivo: '' }));
+      showToast('Período de manutenção cadastrado!', 'success');
+    } catch (e) {
+      console.error(e);
+      showToast('Erro ao salvar o bloqueio.', 'error');
+    }
+  };
+
+  const handleRemoverBloqueio = async (id: string) => {
+    if (!isAdminMode || !db) return;
+    if (!window.confirm('Remover este período de manutenção e liberar o ambiente?')) return;
+    try {
+      await deleteDoc(doc(db, 'artifacts', appId as string, 'public', 'data', 'bloqueios_ccbs', id));
+      showToast('Bloqueio removido.', 'info');
+    } catch (e) {
+      console.error(e);
+      showToast('Erro ao remover o bloqueio.', 'error');
+    }
+  };
+
   const enviarEmailLembrete = async (dadosReserva: any) => {
     const templateParams = {
       to_name: dadosReserva.requisitante,
@@ -270,30 +304,6 @@ export function App() {
     }
   };
 
-  const handleSalvarConfigSala = async (bloquear: boolean) => {
-    if (!isAdminMode) {
-      showToast('Apenas administradores podem alterar as configurações.', 'error');
-      return;
-    }
-
-    try {
-      if (!db) return;
-      const configRef = doc(db, 'artifacts', appId as string, 'public', 'data', 'configuracoes', 'sala_reuniao');
-      
-      await setDoc(configRef, {
-        bloqueada: bloquear,
-        motivo: editandoMotivo.trim() || 'Indisponível para agendamentos.',
-        dataReabertura: editandoDataReabertura,
-        atualizadoEm: new Date().toLocaleString('pt-BR')
-      }, { merge: true });
-
-      showToast('Configurações salvas com sucesso!', 'success');
-    } catch (error) {
-      console.error('Erro ao salvar configuração:', error);
-      showToast('Erro ao atualizar configurações no servidor.', 'error');
-    }
-  };
-
   const handleTransferirReserva = async (reserva: any, novoAuditorio: string) => {
     if (!isAdminMode) {
       showToast('Apenas administradores podem transferir reservas.', 'error');
@@ -313,13 +323,19 @@ export function App() {
       return;
     }
 
+    const bloqueioDestino = buscarBloqueio(novoAuditorio, reserva.data);
+    if (bloqueioDestino) {
+      showToast(`${novoAuditorio} está em manutenção nesta data.`, 'error');
+      return;
+    }
+
     try {
       if (!db) return;
       const docRef = doc(db, 'artifacts', appId as string, 'public', 'data', 'reservas_ccbs', reserva.id);
       
       await updateDoc(docRef, { 
         auditorio: novoAuditorio,
-        historicoTransferencia: `Transferido da SALA DE REUNIÃO para ${novoAuditorio} em ${new Date().toLocaleDateString('pt-BR')}`
+        historicoTransferencia: `Transferido de ${reserva.auditorio} para ${novoAuditorio} em ${new Date().toLocaleDateString('pt-BR')}`
       });
 
       try {
@@ -345,73 +361,42 @@ export function App() {
     }
   };
 
-  const handleNotificarRemanejamento = async () => {
-    if (!salaReuniaoBloqueada) {
-      showToast('A Sala de Reunião não está em manutenção.', 'info');
-      return;
-    }
-
-    const hojeStr = new Date().toISOString().split('T')[0];
-    const afetados = reservas.filter(r => {
-      if (r.auditorio !== 'SALA DE REUNIÃO') return false;
-      return dataReabertura ? (r.data >= hojeStr && r.data < dataReabertura) : r.data >= hojeStr;
-    });
-
+  const handleNotificarRemanejamento = async (b: any) => {
+    const afetados = afetadosPorBloqueio(b);
     if (afetados.length === 0) {
-      showToast('Nenhum agendamento encontrado no período para notificação.', 'info');
+      showToast('Nenhum agendamento afetado neste período.', 'info');
       return;
     }
-
-    if (!window.confirm(`Deseja enviar um e-mail de aviso para ${afetados.length} requisitante(s)?`)) return;
+    if (!window.confirm(`Enviar e-mail de aviso para ${afetados.length} requisitante(s)?`)) return;
 
     setEnviandoEmails(true);
-    let sucessos = 0;
-    let falhas = 0;
-
+    let sucessos = 0, falhas = 0;
     for (const reserva of afetados) {
       try {
-        await emailjs.send(
-          EMAILJS_SERVICE_ID,
-          EMAILJS_TEMPLATE_ID,
-          {
-            to_name: reserva.requisitante,
-            to_email: reserva.email,
-            reply_to: EMAIL_BIBLIOTECA,
-            nome_evento: reserva.nomeEvento,
-            auditorio: reserva.auditorio,
-            data_evento: reserva.data.split('-').reverse().join('/'),
-            hora_inicio: reserva.horaInicio,
-            hora_fim: reserva.horaFim,
-            protocolo: reserva.id,
-            motivo_manutencao: motivoIndisponibilidade,
-            previsao_retorno: dataReabertura ? dataReabertura.split('-').reverse().join('/') : 'A definir'
-          },
-          EMAILJS_PUBLIC_KEY
-        );
+        await emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, {
+          to_name: reserva.requisitante,
+          to_email: reserva.email,
+          reply_to: EMAIL_BIBLIOTECA,
+          nome_evento: reserva.nomeEvento,
+          auditorio: reserva.auditorio,
+          data_evento: formatarBR(reserva.data),
+          hora_inicio: reserva.horaInicio,
+          hora_fim: reserva.horaFim,
+          protocolo: reserva.id,
+          motivo_manutencao: b.motivo,
+          previsao_retorno: formatarBR(b.dataFim)
+        }, EMAILJS_PUBLIC_KEY);
         sucessos++;
-      } catch (err) {
-        falhas++;
-      }
+      } catch { falhas++; }
     }
-
     setEnviandoEmails(false);
-    showToast(`Notificações enviadas: ${sucessos} sucesso(s)${falhas > 0 ? `, ${falhas} falha(s)` : ''}`, 'success');
+    showToast(`Notificações: ${sucessos} sucesso(s)${falhas ? `, ${falhas} falha(s)` : ''}`, 'success');
   };
 
-  const handleGerarRelatorioManutencao = () => {
-    if (!salaReuniaoBloqueada) {
-      showToast('A Sala de Reunião não está bloqueada para manutenção.', 'info');
-      return;
-    }
-
-    const hojeStr = new Date().toISOString().split('T')[0];
-    const afetados = reservas.filter(r => {
-      if (r.auditorio !== 'SALA DE REUNIÃO') return false;
-      return dataReabertura ? (r.data >= hojeStr && r.data < dataReabertura) : r.data >= hojeStr;
-    });
-
+  const handleGerarRelatorioManutencao = (b: any) => {
+    const afetados = afetadosPorBloqueio(b);
     if (afetados.length === 0) {
-      showToast('Nenhum agendamento encontrado no período de manutenção.', 'info');
+      showToast('Nenhum agendamento afetado neste período.', 'info');
       return;
     }
 
@@ -423,9 +408,9 @@ export function App() {
     docPdf.setFontSize(10);
     docPdf.setFont('helvetica', 'normal');
     docPdf.text('UNIVERSIDADE FEDERAL DE CAMPINA GRANDE - CCBS', 105, 26, { align: 'center' });
-    docPdf.text(`Espaço: SALA DE REUNIÃO`, 105, 31, { align: 'center' });
-    docPdf.text(`Motivo: ${motivoIndisponibilidade}`, 105, 36, { align: 'center' });
-    if (dataReabertura) docPdf.text(`Período Afetado: Até ${dataReabertura.split('-').reverse().join('/')}`, 105, 41, { align: 'center' });
+    docPdf.text(`Espaço: ${b.auditorio}`, 105, 31, { align: 'center' });
+    docPdf.text(`Motivo: ${b.motivo}`, 105, 36, { align: 'center' });
+    docPdf.text(`Período: ${formatarBR(b.dataInicio)} a ${formatarBR(b.dataFim)}`, 105, 41, { align: 'center' });
 
     docPdf.line(14, 46, 196, 46);
 
@@ -446,7 +431,7 @@ export function App() {
         y = 20;
       }
       docPdf.setFont('helvetica', 'bold');
-      docPdf.text(`${item.data.split('-').reverse().join('/')}`, 14, y);
+      docPdf.text(`${formatarBR(item.data)}`, 14, y);
       docPdf.setFont('helvetica', 'normal');
       docPdf.text(`${item.horaInicio} - ${item.horaFim}`, 14, y + 4);
       docPdf.text(`${item.nomeEvento || 'Sem Nome'}`, 60, y);
@@ -456,7 +441,7 @@ export function App() {
       y += 12;
     });
 
-    docPdf.save(`Relatorio_Remanejamento_SalaReuniao_${hojeStr}.pdf`);
+    docPdf.save(`Relatorio_Remanejamento_${b.auditorio.replace(/\s/g, '')}_${hojeISO()}.pdf`);
     showToast('Relatório baixado com sucesso!', 'success');
   };
 
@@ -473,22 +458,20 @@ export function App() {
         setFormData(prev => ({ ...prev, data: '' }));
         return;
       }
-
-      if (formData.auditorio === 'SALA DE REUNIÃO' && salaReuniaoBloqueada) {
-        const hojeStr = new Date().toISOString().split('T')[0];
-        if (!dataReabertura || (value < dataReabertura && value >= hojeStr)) {
-          showToast(`A Sala de Reunião está em manutenção!`, 'error');
-          setFormData(prev => ({ ...prev, data: '' }));
-          return;
-        }
+      const b = buscarBloqueio(formData.auditorio, value);
+      if (b) {
+        showToast(`${formData.auditorio} indisponível nesta data: ${b.motivo}`, 'error');
+        setFormData(prev => ({ ...prev, data: '' }));
+        return;
       }
     }
 
-    if (name === 'auditorio' && value === 'SALA DE REUNIÃO' && salaReuniaoBloqueada && formData.data) {
-      const hojeStr = new Date().toISOString().split('T')[0];
-      if (!dataReabertura || (formData.data < dataReabertura && formData.data >= hojeStr)) {
-        showToast('A data selecionada está dentro do período de manutenção da Sala de Reunião.', 'error');
-        setFormData(prev => ({ ...prev, data: '' }));
+    if (name === 'auditorio' && formData.data) {
+      const b = buscarBloqueio(value, formData.data);
+      if (b) {
+        showToast(`${value} está em manutenção na data selecionada (${b.motivo}).`, 'error');
+        setFormData(prev => ({ ...prev, auditorio: value, data: '' }));
+        return;
       }
     }
     
@@ -504,16 +487,14 @@ export function App() {
       return;
     }
 
-    if (formData.auditorio === 'SALA DE REUNIÃO' && salaReuniaoBloqueada) {
-      const hojeStr = new Date().toISOString().split('T')[0];
-      if (!dataReabertura || (formData.data < dataReabertura && formData.data >= hojeStr)) {
-        showToast('A Sala de Reunião está indisponível para reservas no momento.', 'error');
-        return;
-      }
-    }
-
     if (!formData.data || !formData.nomeEvento || !formData.requisitante || !formData.cpf || !formData.email || !formData.telefone || !formData.senha) {
       showToast('Preencha todos os campos obrigatórios!', 'error');
+      return;
+    }
+
+    const bloqueioAtivo = buscarBloqueio(formData.auditorio, formData.data);
+    if (bloqueioAtivo) {
+      showToast(`${formData.auditorio} indisponível: ${bloqueioAtivo.motivo}`, 'error');
       return;
     }
 
@@ -730,14 +711,10 @@ export function App() {
     });
     lista.sort((a, b) => a.data.localeCompare(b.data) || a.horaInicio.localeCompare(b.horaInicio));
 
-    const hojeStr = new Date().toISOString().split('T')[0];
     const resultado: any[] = [];
 
     lista.forEach(item => {
-      const emManutencao = 
-        processData.auditorio === 'SALA DE REUNIÃO' && 
-        salaReuniaoBloqueada && 
-        (!dataReabertura || (item.data < dataReabertura && item.data >= hojeStr));
+      const emManutencao = !!buscarBloqueio(processData.auditorio, item.data);
 
       const conflitoReserva =
         reservas.some(r => r.auditorio === processData.auditorio && r.data === item.data &&
@@ -767,11 +744,6 @@ export function App() {
   const handleSalvarProcesso = async () => {
     if (!processData.nomeEvento.trim() || !processData.sei.trim()) {
       showToast('Informe o nome do evento e o número do processo SEI!', 'error');
-      return;
-    }
-
-    if (processData.auditorio === 'SALA DE REUNIÃO' && salaReuniaoBloqueada && !dataReabertura) {
-      showToast('A Sala de Reunião está totalmente indisponível para novos agendamentos.', 'error');
       return;
     }
 
@@ -852,7 +824,8 @@ export function App() {
     for (let d = 1; d <= daysInMonth; d++) {
       const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
       const dayReservas = reservas.filter(r => r.data === dateStr);
-      const isToday = new Date().toISOString().split('T')[0] === dateStr;
+      const isToday = hojeISO() === dateStr;
+      const bloqueiosDia = bloqueios.filter(b => dateStr >= b.dataInicio && dateStr <= b.dataFim);
 
       days.push(
         <div 
@@ -864,6 +837,14 @@ export function App() {
           `}
         >
           <span className={`text-xs font-black ${isToday ? 'text-blue-600' : 'text-slate-400'}`}>{d}</span>
+          {bloqueiosDia.length > 0 && (
+            <span
+              className="absolute top-1 right-1 text-[8px] font-black bg-amber-100 text-amber-800 px-1 rounded"
+              title={bloqueiosDia.map(b => `${b.auditorio}: ${b.motivo}`).join('\n')}
+            >
+              🔒 {bloqueiosDia.length}
+            </span>
+          )}
           <div className="mt-1 space-y-1">
             {dayReservas.slice(0, 2).map((r, idx) => (
               <div 
@@ -948,76 +929,76 @@ export function App() {
         {/* FORMULÁRIO DE NOVO AGENDAMENTO */}
         <div className="lg:col-span-4 space-y-6">
 
-          {/* PAINEL ADMIN PARA GERENCIAR SALA DE REUNIÃO */}
+          {/* PAINEL ADMIN: SUSPENDER AGENDAMENTOS POR PERÍODO */}
           {isAdminMode && (
             <div className="bg-amber-50 border-2 border-amber-300 p-5 rounded-[2rem] shadow-xl space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-amber-900 font-black text-xs uppercase tracking-wider">
-                  <Shield className="w-4 h-4 text-amber-600" />
-                  <span>Gestão Sala de Reunião</span>
+              <div className="flex items-center gap-2 text-amber-900 font-black text-xs uppercase tracking-wider">
+                <Shield className="w-4 h-4 text-amber-600" />
+                <span>Suspender Agendamentos (Manutenção)</span>
+              </div>
+
+              <select
+                value={novoBloqueio.auditorio}
+                onChange={e => setNovoBloqueio(p => ({ ...p, auditorio: e.target.value }))}
+                className="w-full p-3 bg-white border border-amber-200 rounded-xl font-bold text-xs uppercase outline-none"
+              >
+                {AUDITORIOS.map(a => <option key={a} value={a}>{a}</option>)}
+              </select>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[9px] font-black uppercase text-amber-800 mb-1">De:</label>
+                  <input type="date" value={novoBloqueio.dataInicio} min={hojeISO()}
+                    onChange={e => setNovoBloqueio(p => ({ ...p, dataInicio: e.target.value }))}
+                    className="w-full p-3 bg-white border border-amber-200 rounded-xl font-bold text-xs outline-none" />
                 </div>
-                <span className={`text-[9px] font-black px-2 py-0.5 rounded-full uppercase ${salaReuniaoBloqueada ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
-                  {salaReuniaoBloqueada ? 'Indisponível' : 'Liberada'}
-                </span>
+                <div>
+                  <label className="block text-[9px] font-black uppercase text-amber-800 mb-1">Até:</label>
+                  <input type="date" value={novoBloqueio.dataFim} min={novoBloqueio.dataInicio || hojeISO()}
+                    onChange={e => setNovoBloqueio(p => ({ ...p, dataFim: e.target.value }))}
+                    className="w-full p-3 bg-white border border-amber-200 rounded-xl font-bold text-xs outline-none" />
+                </div>
               </div>
 
-              <div>
-                <label className="block text-[9px] font-black uppercase text-amber-800 mb-1">Motivo:</label>
-                <input
-                  type="text"
-                  value={editandoMotivo}
-                  onChange={(e) => setEditandoMotivo(e.target.value)}
-                  placeholder="Ex: Manutenção na climatização..."
-                  className="w-full p-3 bg-white border border-amber-200 rounded-xl font-medium text-xs text-slate-800 outline-none"
-                />
-              </div>
+              <input type="text" value={novoBloqueio.motivo}
+                onChange={e => setNovoBloqueio(p => ({ ...p, motivo: e.target.value }))}
+                placeholder="Motivo (ex: Manutenção na climatização)"
+                className="w-full p-3 bg-white border border-amber-200 rounded-xl font-medium text-xs outline-none" />
 
-              <div>
-                <label className="block text-[9px] font-black uppercase text-amber-800 mb-1">Reabertura Automática:</label>
-                <input
-                  type="date"
-                  value={editandoDataReabertura}
-                  onChange={(e) => setEditandoDataReabertura(e.target.value)}
-                  className="w-full p-3 bg-white border border-amber-200 rounded-xl font-bold text-xs text-slate-800 outline-none"
-                />
-              </div>
+              <button type="button" onClick={handleAdicionarBloqueio}
+                className="w-full py-2.5 bg-amber-600 text-white rounded-xl font-bold text-[10px] uppercase hover:bg-amber-700 transition-all cursor-pointer">
+                Suspender Agendamentos no Período
+              </button>
 
-              <div className="flex gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={() => handleSalvarConfigSala(true)}
-                  className="flex-1 py-2.5 bg-amber-600 text-white rounded-xl font-bold text-[10px] uppercase hover:bg-amber-700 transition-all cursor-pointer"
-                >
-                  Salvar Bloqueio
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleSalvarConfigSala(false)}
-                  className="py-2.5 px-3 bg-emerald-600 text-white rounded-xl font-bold text-[10px] uppercase hover:bg-emerald-700 transition-all cursor-pointer"
-                >
-                  Liberar
-                </button>
-              </div>
-
-              {salaReuniaoBloqueada && (
-                <div className="pt-2 border-t border-amber-200 space-y-2">
-                  <button
-                    type="button"
-                    disabled={enviandoEmails}
-                    onClick={handleNotificarRemanejamento}
-                    className="w-full py-2.5 bg-blue-700 text-white font-bold rounded-xl text-[10px] uppercase hover:bg-blue-800 transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
-                  >
-                    {enviandoEmails ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Mail className="w-3.5 h-3.5" />}
-                    Notificar Afetados via E-mail
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={handleGerarRelatorioManutencao}
-                    className="w-full py-2.5 bg-amber-800 text-white font-bold rounded-xl text-[10px] uppercase hover:bg-amber-900 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-                  >
-                    <FileText className="w-3.5 h-3.5" /> Baixar Relatório (PDF)
-                  </button>
+              {/* Lista de bloqueios vigentes */}
+              {bloqueiosVigentes.length > 0 && (
+                <div className="pt-2 border-t border-amber-200 space-y-2 max-h-64 overflow-y-auto">
+                  {bloqueiosVigentes.map(b => (
+                    <div key={b.id} className="p-3 bg-white rounded-xl border border-amber-200 space-y-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <p className="font-black text-[11px] uppercase text-slate-800">{b.auditorio}</p>
+                          <p className="text-[10px] font-bold text-amber-800">{formatarBR(b.dataInicio)} a {formatarBR(b.dataFim)}</p>
+                          <p className="text-[10px] text-slate-500">{b.motivo}</p>
+                          <p className="text-[10px] text-slate-400">{afetadosPorBloqueio(b).length} reserva(s) afetada(s)</p>
+                        </div>
+                        <button type="button" onClick={() => handleRemoverBloqueio(b.id)}
+                          className="p-1.5 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 cursor-pointer" title="Remover bloqueio">
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                      <div className="flex gap-1.5">
+                        <button type="button" disabled={enviandoEmails} onClick={() => handleNotificarRemanejamento(b)}
+                          className="flex-1 py-2 bg-blue-700 text-white font-bold rounded-lg text-[9px] uppercase hover:bg-blue-800 flex items-center justify-center gap-1 cursor-pointer disabled:opacity-50">
+                          {enviandoEmails ? <Loader2 className="w-3 h-3 animate-spin" /> : <Mail className="w-3 h-3" />} Notificar
+                        </button>
+                        <button type="button" onClick={() => handleGerarRelatorioManutencao(b)}
+                          className="flex-1 py-2 bg-amber-800 text-white font-bold rounded-lg text-[9px] uppercase hover:bg-amber-900 flex items-center justify-center gap-1 cursor-pointer">
+                          <FileText className="w-3 h-3" /> PDF
+                        </button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
@@ -1049,39 +1030,29 @@ export function App() {
                   onChange={handleChange} 
                   className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold uppercase text-xs focus:border-blue-600 outline-none transition-all"
                 >
-                  {AUDITORIOS.map(a => {
-                    const isSalaReuniao = a === 'SALA DE REUNIÃO';
-                    const desabilitado = isSalaReuniao && salaReuniaoBloqueada;
-                    return (
-                      <option key={a} value={a} disabled={desabilitado}>
-                        {a} {desabilitado ? '(Temporariamente Indisponível)' : ''}
-                      </option>
-                    );
-                  })}
+                  {AUDITORIOS.map(a => <option key={a} value={a}>{a}</option>)}
                 </select>
 
-                {formData.auditorio === 'SALA DE REUNIÃO' && salaReuniaoBloqueada && (
-                  <div className="flex items-start gap-2.5 p-3.5 bg-amber-50 border border-amber-200 rounded-2xl text-amber-900 text-xs font-semibold">
+                {bloqueiosVigentes.filter(b => b.auditorio === formData.auditorio).map(b => (
+                  <div key={b.id} className="flex items-start gap-2.5 p-3.5 bg-amber-50 border border-amber-200 rounded-2xl text-amber-900 text-xs font-semibold">
                     <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                     <div>
-                      <p className="font-bold uppercase text-[10px] text-amber-700 tracking-wider">Espaço Indisponível</p>
-                      <p className="mt-0.5">{motivoIndisponibilidade}</p>
-                      {dataReabertura && (
-                        <p className="mt-2 text-[11px] font-bold text-amber-800 flex items-center gap-1">
-                          <Clock className="w-3.5 h-3.5 text-amber-600 inline" />
-                          Previsão de reabertura: {dataReabertura.split('-').reverse().join('/')}
-                        </p>
-                      )}
+                      <p className="font-bold uppercase text-[10px] text-amber-700 tracking-wider">Indisponível para novos agendamentos</p>
+                      <p className="mt-0.5">{b.motivo}</p>
+                      <p className="mt-1 text-[11px] font-bold text-amber-800 flex items-center gap-1">
+                        <Clock className="w-3.5 h-3.5 text-amber-600 inline" />
+                        {formatarBR(b.dataInicio)} a {formatarBR(b.dataFim)}
+                      </p>
                     </div>
                   </div>
-                )}
+                ))}
                 
                 <input 
                   type="date" 
                   name="data" 
                   value={formData.data} 
                   onChange={handleChange} 
-                  min={formData.auditorio === 'SALA DE REUNIÃO' && salaReuniaoBloqueada && dataReabertura ? dataReabertura : new Date().toISOString().split('T')[0]}
+                  min={hojeISO()}
                   className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none focus:border-blue-600 font-bold text-xs" 
                 />
                 
@@ -1134,49 +1105,33 @@ export function App() {
         <div className="lg:col-span-8 space-y-6">
 
           {/* LISTA DE AFETADOS NO PAINEL ADMIN PARA TRANSFERÊNCIA */}
-          {isAdminMode && salaReuniaoBloqueada && (
+          {isAdminMode && bloqueiosVigentes.some(b => afetadosPorBloqueio(b).length > 0) && (
             <div className="bg-white p-5 rounded-[2.5rem] border border-amber-200 shadow-xl space-y-3">
-              <h4 className="text-xs font-black uppercase text-amber-900 flex items-center justify-between">
-                <span>Agendamentos Afetados (Sala de Reunião)</span>
-                <span className="bg-amber-100 text-amber-800 text-[10px] px-2.5 py-0.5 rounded-full font-bold">
-                  {reservas.filter(r => r.auditorio === 'SALA DE REUNIÃO' && r.data >= new Date().toISOString().split('T')[0] && (!dataReabertura || r.data < dataReabertura)).length} pendentes
-                </span>
-              </h4>
-
+              <h4 className="text-xs font-black uppercase text-amber-900">Agendamentos Afetados por Manutenção</h4>
               <div className="max-h-60 overflow-y-auto space-y-3 pr-1">
-                {reservas
-                  .filter(r => r.auditorio === 'SALA DE REUNIÃO' && r.data >= new Date().toISOString().split('T')[0] && (!dataReabertura || r.data < dataReabertura))
-                  .map(r => (
-                    <div key={r.id} className="p-3 bg-amber-50/60 rounded-xl border border-amber-200 text-xs flex flex-col md:flex-row md:items-center justify-between gap-3">
-                      <div>
-                        <p className="font-black text-slate-800 text-xs">
-                          {r.data.split('-').reverse().join('/')} • {r.horaInicio} às {r.horaFim}
-                        </p>
-                        <p className="text-slate-700 font-bold text-[11px] mt-0.5">
-                          {r.nomeEvento} <span className="font-normal text-slate-500">({r.requisitante})</span>
-                        </p>
-                        <p className="text-slate-500 text-[10px] mt-0.5">Setor: {r.setor || 'N/I'} | Tel: {r.telefone}</p>
-                      </div>
-
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <span className="text-[9px] font-black uppercase text-amber-800 mr-1 hidden sm:inline">Mover para:</span>
-                        <button
-                          type="button"
-                          onClick={() => handleTransferirReserva(r, 'AUDITÓRIO')}
-                          className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-black text-[10px] uppercase shadow-sm cursor-pointer"
-                        >
-                          Auditório
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleTransferirReserva(r, 'SALA 01')}
-                          className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-black text-[10px] uppercase shadow-sm cursor-pointer"
-                        >
-                          Sala 01
-                        </button>
-                      </div>
+                {bloqueiosVigentes.flatMap(b => afetadosPorBloqueio(b)).map(r => (
+                  <div key={r.id} className="p-3 bg-amber-50/60 rounded-xl border border-amber-200 text-xs flex flex-col md:flex-row md:items-center justify-between gap-3">
+                    <div>
+                      <p className="font-black text-slate-800 text-xs">
+                        {formatarBR(r.data)} • {r.horaInicio} às {r.horaFim} •{' '}
+                        <span className="text-amber-700">{r.auditorio}</span>
+                      </p>
+                      <p className="text-slate-700 font-bold text-[11px] mt-0.5">
+                        {r.nomeEvento} <span className="font-normal text-slate-500">({r.requisitante})</span>
+                      </p>
+                      <p className="text-slate-500 text-[10px] mt-0.5">Setor: {r.setor || 'N/I'} | Tel: {r.telefone}</p>
                     </div>
-                  ))}
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <span className="text-[9px] font-black uppercase text-amber-800 mr-1 hidden sm:inline">Mover para:</span>
+                      {AUDITORIOS.filter(a => a !== r.auditorio && !buscarBloqueio(a, r.data)).map(a => (
+                        <button key={a} type="button" onClick={() => handleTransferirReserva(r, a)}
+                          className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-black text-[10px] uppercase shadow-sm cursor-pointer">
+                          {a}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           )}
@@ -1216,6 +1171,7 @@ export function App() {
                 <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-cyan-500"></span> Sala de Reunião</div>
                 <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-emerald-600"></span> Sala 01</div>
                 <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-purple-600"></span> Remanejado</div>
+                <div className="flex items-center gap-1.5"><span className="text-[10px]">🔒</span> Manutenção</div>
               </div>
             </div>
           </div>
@@ -1336,11 +1292,7 @@ export function App() {
                 onChange={e => setProcessData(prev => ({ ...prev, auditorio: e.target.value }))}
                 className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold text-xs uppercase"
               >
-                {AUDITORIOS.map(a => (
-                  <option key={a} value={a} disabled={a === 'SALA DE REUNIÃO' && salaReuniaoBloqueada}>
-                    {a} {a === 'SALA DE REUNIÃO' && salaReuniaoBloqueada ? '(Em Manutenção)' : ''}
-                  </option>
-                ))}
+                {AUDITORIOS.map(a => <option key={a} value={a}>{a}</option>)}
               </select>
 
               <input type="text" value={processData.nomeEvento} onChange={e => setProcessData(prev => ({ ...prev, nomeEvento: e.target.value }))} placeholder="Nome do Evento / Disciplina" className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold text-xs" />
