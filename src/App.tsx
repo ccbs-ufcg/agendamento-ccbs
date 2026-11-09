@@ -866,7 +866,6 @@ export function App() {
     }
     return days;
   };
-
       {/* CABEÇALHO */}
       <header className="bg-blue-700 text-white shadow-xl sticky top-0 z-30 print:hidden">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 sm:py-4 flex flex-wrap items-center justify-between gap-3">
