@@ -850,35 +850,22 @@ export function App() {
               <div 
                 key={idx} 
                 className={`text-[8px] md:text-[9px] truncate px-1 py-0.5 rounded font-bold uppercase flex items-center justify-between gap-1 ${obterEstiloTag(r)}`} 
-                title={`${r.nomeEvento || r.requisitante}${r.historicoTransferencia ? ` (${r.historicoTransferencia})` : ''}`}
+                title={`${r.nomeEvento || r.requisitante} - ${r.auditorio} (${r.horaInicio} às ${r.horaFim})`}
               >
-                <span className="truncate">
-                  {r.horaInicio} {r.nomeEvento || r.requisitante.split(' ')[0]}
-                </span>
-                {r.historicoTransferencia && (
-                  <span className="bg-white/20 text-white text-[7px] px-0.5 rounded font-black shrink-0">
-                    🔄
-                  </span>
-                )}
+                <span>{r.horaInicio} {r.nomeEvento || r.requisitante}</span>
               </div>
             ))}
-            {dayReservas.length > 2 && <div className="text-[8px] text-slate-400 font-bold text-center">+{dayReservas.length - 2}</div>}
+            {dayReservas.length > 2 && (
+              <span className="text-[8px] text-blue-600 font-bold block text-center">
+                +{dayReservas.length - 2} mais
+              </span>
+            )}
           </div>
         </div>
       );
     }
     return days;
   };
-
-  return (
-    <div className="min-h-screen bg-slate-100 font-sans text-slate-800 pb-12 flex flex-col print:bg-white print:p-0">
-      
-      {/* NOTIFICAÇÃO (TOAST) */}
-      {toast && (
-        <div className={`fixed bottom-6 right-6 z-[200] px-6 py-3 rounded-2xl shadow-2xl text-white font-bold text-xs uppercase tracking-wider animate-bounce print:hidden ${toast.type === 'error' ? 'bg-red-600' : 'bg-blue-600'}`}>
-          {toast.message}
-        </div>
-      )}
 
       {/* CABEÇALHO */}
       <header className="bg-blue-700 text-white shadow-xl sticky top-0 z-30 print:hidden">
